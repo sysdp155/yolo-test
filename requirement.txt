@@ -63,7 +63,7 @@ more, multimodal uncertainty is often reduced to a small set of candidate trajec
 
 Structure of the work. Chapter 2 introduces deep learning, generative models and motion forecasting, plus domain generalization and OT. Chapter 3 details the network architecture and gap-quantification methodology. Chapter 4 presents results; Chapter 5.4 and Chapter 5.4 discuss, limit, and conclude.
  
-
+11111111111
 Chapter 2
 
 Background and Related Work
