@@ -1,0 +1,1629 @@
+
+
+
+
+
+
+
+
+
+Thesis title
+
+Brikel Keputa Oktober 20, 2025
+ 
+Master of Science Teschnische Universität
+Supervisors: Prof. Dr. Hanno Gottschalk
+ 
+
+Contents
+
+ 
+1	Introduction	4
+2	Background and Related Work	6
+2.1	Deep Learning Foundations	. . . . . . . . . . . . . . . . . . . . . . . . .	6
+2.2	Sequence Models for Trajectory Prediction . . . . . . . . . . . . . . . . .	9
+2.3	Generative Models	11
+2.4	Diffusion Model Theory	17
+2.5	Conditional Diffusion and Guidance Techniques	23
+2.6	Forecasting-to-Planning via Controllable Generation	25
+2.7	Notizen	31
+3	Methodology	33
+3.1	Overview of Approach	33
+3.2	Dataset Description	38
+3.3	Real-World Data Source: nuPlan	38
+3.4	Data Preprocessing	40
+3.4.1	Output Representation	45
+3.5	Model Architecture	46
+3.5.1	Unconditional Model Architecture	46
+3.5.2	Conditional Architecture: High-Level Intent Control	51
+4	Experiments and Results	56
+4.0.1	Unconditional Trajectory Generation	57
+4.1	Conditional model	59
+4.1.1	Comparison of Conditioning Projection Architectures	61
+4.1.2	Conditioning in Attention Layers	63
+4.1.3	Training with Direction Loss	64
+4.1.4	Effect of Guidance Scale	65
+4.1.5	Direction Threshold Sensitivity	65
+5	Experiments	66
+5.1	Conditional Model	66
+5.1.1	Comparison of Conditioning Projection Architectures	67
+5.1.2	Conditioning in Attention Layers	68
+5.1.3	Training with Direction Loss	70
+5.2	Summary	71
+5.2.1	Effect of Guidance Scale	72
+5.2.2	Direction Threshold Sensitivity	72
+5.3	Safety Metric Evaluation	73
+5.4	Summary	73
+ 
+
+Chapter 1 Introduction
+In recent years, artificial intelligence has undergone a profound transformation driven by advances in generative modeling. Diffusion models, originally developed for high-fidelity image synthesis, have demonstrated an exceptional ability to represent complex, high- dimensional probability distributions with remarkable stability and expressiveness. Their underlying principle — iteratively transforming noise into structured data — has proven particularly powerful in domains characterized by uncertainty, multimodality, and com- plex dependencies. As research increasingly moves from digital media generation toward physically grounded applications, diffusion models are beginning to reshape robotics and autonomous systems. Autonomous driving, in particular, represents one of the most challenging and impactful domains in which these generative principles can be applied. Traffic environments are inherently stochastic and interactive. At any given moment, multiple plausible future behaviors exist for each participant. A vehicle approaching an intersection may accelerate, decelerate, change lanes, or yield. A pedestrian may con- tinue walking, stop, or alter direction. Traditional deterministic trajectory models often collapse this uncertainty into a single most-likely forecast, thereby losing critical informa- tion about alternative outcomes. Even probabilistic approaches frequently approximate multimodality using discrete hypotheses or simplified distributional assumptions, limiting their ability to capture rich interaction dynamics. Diffusion models offer a fundamen- tally different perspective by learning the full distribution of possible trajectories rather than predicting a single path. Through iterative denoising, they generate diverse and realistic motion patterns that remain coherent across multiple interacting agents. In this sense, diffusion-based motion models function not merely as predictors, but as proba- bilistic world models capable of synthesizing complex traffic futures. However, prediction alone does not constitute decision-making. Conventional autonomous driving architec- tures separate motion prediction and planning into independent modules, often leading to structural limitations. Predictions are typically open-loop and do not account for how the ego vehicle’s planned behavior might influence others. Planning, in turn, assumes fixed forecasts and may therefore be brittle when unexpected behaviors arise. Further-
+ 
+more, multimodal uncertainty is often reduced to a small set of candidate trajectories, restricting the planner’s ability to reason over diverse futures. These limitations moti- vate the search for more unified frameworks. This thesis explores such a framework by transforming diffusion-based trajectory prediction into controllable generative planning through structured conditioning mechanisms. By embedding goal-related signals directly into the diffusion denoising process, the model can generate trajectories that are not only plausible under learned traffic dynamics but also aligned with specified objectives. Instead of treating planning as a separate optimization problem, it becomes a guided generative process. Conditioning signals may encode maneuver intentions, directional commands, or target states, allowing the system to bias trajectory samples toward de- sired behaviors while maintaining multimodal richness. This formulation bridges the gap between prediction and planning within a single probabilistic architecture. A central contribution of this work is the extension of this approach to multi-agent motion with agent-specific conditioning. Real-world traffic consists of interdependent agents, each pursuing individual goals while reacting to others. Many conditional generative models apply a single global conditioning signal across the entire scene, which limits behavioral granularity. In contrast, the proposed framework introduces separate conditioning vec- tors for individual agents. This modular design enables fine-grained behavioral control while preserving joint interaction consistency. Each agent’s trajectory can be guided independently, yet all motions are generated jointly within a shared diffusion process, ensuring coherence and collision awareness. The result is a controllable multi-agent mo- tion model capable of representing heterogeneous intentions within realistic interactive environments. The proposed approach is trained and evaluated on the nuPlan dataset, comprising over 1,200 hours of real-world urban driving data collected in cities such as Singapore, Pittsburgh, Boston, and Las Vegas. The diversity of traffic patterns and road geometries within nuPlan provides a rigorous testbed for assessing multimodal trajectory generation and conditional planning performance. Experimental results demonstrate that diffusion-based modeling supports realistic and diverse motion generation, effective condi- tional guidance, and structured multi-agent interaction under heterogeneous constraints. By integrating generative modeling, conditional control, and multi-agent coordination, this work advances the transition from passive trajectory forecasting toward controllable, interaction-aware planning. MotionDiffusion represents a step toward autonomous sys- tems that reason probabilistically, generate diverse yet structured behaviors, and operate robustly within complex real-world traffic environments.
+
+Structure of the work. Chapter 2 introduces deep learning, generative models and motion forecasting, plus domain generalization and OT. Chapter 3 details the network architecture and gap-quantification methodology. Chapter 4 presents results; Chapter 5.4 and Chapter 5.4 discuss, limit, and conclude.
+ 
+
+Chapter 2
+
+Background and Related Work
+
+Generative models have revolutionised machine learning, and their adoption in autonomous driving is advancing prediction and planning. This chapter lays the groundwork for Mo- tionDiffusion, a diffusion-based framework for controllable multi-agent trajectory predic- tion and planning. We begin with neural network fundamentals: the biological neuron analogy, the perceptron and multilayer networks, and how deep learning models are trained with losses, backpropagation and optimisers (SGD/Adam).	Next, we survey sequence modelling (RNNs, LSTM, GRU, attention/Transformers) and why such mod- els naturally suit vehicle trajectory data and interactions. We then review generative model families (VAEs, GANs, autoregressive models, normalising flows), summarising their strengths and weaknesses for multi-modal motion forecasting.
+The core of the chapter is diffusion models. We explain the forward noising pro- cess and reverse denoising (including DDPM equations below), training objectives (the ELBO-derived DDPM loss) and the score/SDE perspective. We cover conditional diffu- sion: how to inject context (e.g. goals or commands) via concatenation, FiLM or cross- attention, and how guidance mechanisms (classifier-based and classifier-free) steer the generation. Sampling speed-ups (DDIM, DPM-Solver) are also discussed. Throughout, we relate these topics to motion prediction and planning: why diffusion’s ability to repre- sent diverse futures and to accept conditioning makes it well-suited to MotionDiffusion, especially when each agent’s behavior can be guided independently. This architectural shift enables coherent multi-agent sampling under separate controls. Finally, we list ex- plicit assumptions (e.g. using the nuPlan dataset, Transformer encoder, UNet denoiser) and sketch a recommended chapter structure.
+
+2.1	Deep Learning Foundations
+The field of deep learning is fundamentally inspired by the biological structure of the human brain. The artificial neuron serves as the primary building block, mimicking the
+ 
+biological process where neurons sum incoming signals and fire an output if a certain threshold is reached.
+Early formalization by McCulloch and Pitts [1943] introduced the threshold logic unit, which was later extended by Frank Rosenblatt’s perceptron Rosenblatt [1958] through the addition of learnable weights. Mathematically, a modern artificial neuron computes its output y as:
+ 
+
+y = σ
+ 
+
+n
+
+i=1
+ 
+wixi + b!
+ 
+
+= σ(w⊤x + b)	(2.1)
+ 
+where x represents the input vector, w the weight vector, b the bias term, and σ(·) a non-linear activation function. Common choices for σ include the Rectified Linear Unit (ReLU σ(x) = max(0, x)) or the sigmoid function (σ(x) =  1−x ), which allow the
+network to model non-linear relationships.
+
+Figure 2.1: Structural comparison between biological and artificial neural networks: (a) anatomy of a biological neuron, (b) mathematical model of an artificial neuron, (c) synap- tic connection between neurons, and (d) architecture of a multilayer feedforward neural network.
+
+Stacking these neurons into multiple layers results in a feedforward neural network (FNN) or Multi-Layer Perceptron (MLP). While a single-layer perceptron can only clas- sify linearly separable patterns, multilayer networks are known to be universal func- tion approximators, capable of representing complex mappings between high-dimensional spaces Cybenko [1989], Hornik et al. [1989]. Deeper architectures are typically more efficient than very wide networks.
+
+Training and Optimization
+Deep learning refers to neural networks with a significant number of hidden layers. Train- ing these architectures involves minimizing a loss function L(θ), which quantifies the dis- crepancy between the predicted output and the ground truth. For tasks such as motion prediction, the Mean Squared Error (MSE) is a common choice for trajectory regression:
+ 
+1
+L(θ) =
+N
+ 
+
+ 
+  yj
+j=1
+ 
+— yˆj(θ)   2	(2.2)
+ 
+The optimization is typically performed using Backpropagation Rumelhart et al. [1986a], which efficiently computes the gradients ∇θL by applying the chain rule back- ward through the network layers. Parameters are then updated using Stochastic Gradient Descent (SGD) or its variants:
+
+θ ← θ − η∇θL	(2.3)
+where η denotes the learning rate. Modern deep learning practice often favors adaptive optimizers to overcome the limitations of a static learning rate. Specifically, the Adam optimizer Kingma and Ba [2014] is an adaptive learning rate algorithm used to achieve faster convergence during the training process. It functions by individually adjusting the learning rate for each specific parameter, which allows for more efficient navigation of the loss landscape compared to standard stochastic gradient descent. This per-parameter adjustment is particularly beneficial when dealing with the complex, high-dimensional mapping required for agent trajectory prediction.
+Today, frameworks utilizing automatic differentiation (e.g., PyTorch’s autograd) re- move the need for manual gradient derivation, enabling the implementation of highly complex architectures. This flexibility makes deep learning a powerful foundation for motion prediction, as it can learn to map rich, heterogeneous inputs—such as agent histories and environmental maps—directly to predicted future trajectories.
+ 
+
+ 
+Algorithm 1 Mini-Batch Backpropagation with Gradient Descent	
+ 
+(n)  (n)  N
+n=1
+Ensure: Updated network parameters θ
+ 
+, learning rate η, network parameters θ = {wji, bj}
+ 
+1: for each mini-batch	1, . . . , N  do
+2:	Initialize accumulated gradients to zero 3:	for each sample (x(n), t(n))	do
+4:	Forward pass:
+5:	for each layer ℓ = 1, . . . , L do
+6:	Compute pre-activations:
+
+ 
+
+
+7:	Compute activations:
+ 
+j		ji i	j i
+ 
+y(ℓ) = σ(a(ℓ))
+ 
+8:	end for
+9:	Compute loss L(n)
+10:	Backward pass:
+11:	Compute output layer error:
+ 
+j
+
+
+
+
+
+
+
+
+
+(L)
+ 
+j
+
+
+
+
+
+
+
+
+∂L(n) ′
+ 
+
+
+
+
+
+
+
+
+
+
+(L)
+ 
+δk	=
+ 
+∂yk
+ 
+σ (ak  )
+ 
+12:	for each hidden layer ℓ = L	1, . . . , 1 do
+13:	Compute hidden layer errors:
+
+ 
+j
+
+14:	end for
+
+15:	Gradient accumulation:
+16:	for each weight w(ℓ) do
+17:	Accumulate gradient:
+ 
+j	kj	k
+k
+ 
+∂L  + = δ(ℓ)y(ℓ−1)
+ 
+ 
+
+18:	end for
+19:	end for
+
+20:	Parameter update: 21:	for each weight w(ℓ) do 22:
+ 
+(ℓ)	j	i
+ji
+
+
+
+
+
+
+
+
+(ℓ)	(ℓ)	 1	∂L 
+w	← w	− η
+ 
+
+23:	end for
+ 
+ji	ji
+ 
+|B| ∂w(ℓ)
+ 
+24: end for	
+
+2.2	Sequence Models for Trajectory Prediction
+Trajectories constitute inherently temporal data, as each position depends on previous motion states. Sequence modelling techniques are therefore a natural choice for trajectory prediction tasks.
+ 
+Recurrent Neural Networks (RNNs) were introduced to process sequential inputs by maintaining a hidden state that evolves over time. At time step t, the hidden state is updated according to
+ht = f (ht−1, xt),	(2.4)
+where xt denotes the input at time t, ht−1 is the previous hidden state, and f (·) is a nonlinear transformation. Through this recursive formulation, the network output at time t depends implicitly on all past inputs {x1, . . . , xt}. This property makes RNNs well-suited for modelling time series and motion trajectories.
+However, standard (“vanilla”) RNNs suffer from the vanishing and exploding gradient problem when trained on long sequences, which limits their ability to capture long-range dependencies (Hochreiter). To address this limitation, Long Short-Term Memory (LSTM) networks (Hochreiter and Schmidhuber) were introduced. LSTMs have demon- strated strong performance in domains such as speech recognition, machine translation, and video classification (Smagulova and James). Their innovation lies in a gating mech- anism that controls the flow of information into and out of a memory cell, including the input, forget, and output gates. These gates allow the network to retain or discard information as needed, stabilizing gradient propagation over long sequences.
+
+Figure 2.2: Recurrent Neural Network, Long Short-Term Memory and Gated Recurrent Units architectures (Olah, 2015).
+
+In autonomous driving, LSTMs have been widely used for trajectory forecasting, as they are capable of capturing motion context over several seconds. Notably, models such as Social-LSTM incorporate social pooling mechanisms to account for interactions between neighbouring agents, enabling the prediction of socially compliant motion pat- terns. Yet traffic scenes involve many interacting agents and complex context (road graphs, traffic rules). Attention mechanisms, which we going to learn more about at the next chapter, address this by letting the model focus on relevant parts of the input. The Transformer architecture (Vaswani et al., 2017) uses self-attention to relate every part of the input to every other part. In multi-agent motion forecasting, this means an agent’s fu- ture can attend to the histories of nearby vehicles and map features. Indeed, recent work (e.g. Wayformer) successfully applies Transformers to trajectory prediction, encoding all
+ 
+agent trajectories and map data as a set of tokens. This flexibility makes Transformers well-suited for our purposes: they naturally produce per-agent context vectors that can be used in a diffusion decoder.
+In summary, sequence models (RNN/LSTM) provide temporal processing, while at- tention/Transformers enable rich interaction modelling. MotionDiffusion uses a Trans- former encoder to extract agent-specific features from the scene, preparing the ground for conditioned diffusion sampling.
+
+2.3	Generative Models
+Early approaches to trajectory prediction predominantly relied on recurrent neural net- works (RNNs) and sequence-to-sequence architectures. A common formulation is the encoder–recurrent–decoder (ERD) framework, originally proposed by Alahi et al. ?. In this architecture, an encoder processes an observed trajectory sequence into a fixed- dimensional latent representation, which initializes a recurrent decoder that autoregres- sively generates future states.
+Formally, let x1:Tobs denote the observed trajectory. An encoder network fϕ maps this sequence into a latent state h = fϕ(x1:Tobs ). A decoder RNN then predicts future positions as
+xt+1 = gθ(xt, h),	t ≥ Tobs.
+This paradigm has been widely adopted due to its simplicity and compatibility with variable-length sequences. Numerous extensions incorporate social pooling mechanisms, interaction graphs, or handcrafted features to account for neighboring agents.
+However, ERD-style models suffer from a fundamental limitation: they are determin- istic. Training typically minimizes a mean squared error (MSE) loss between predicted and ground-truth trajectories, which implicitly assumes a unimodal conditional distribu- tion. As a result, these models tend to predict an average of all plausible futures, leading to unrealistic behaviors such as trajectories drifting between lanes or cutting across in- tersections. This phenomenon, often referred to as mode averaging, makes deterministic sequence models unsuitable for realistic motion forecasting in complex traffic scenes.
+
+Autoencoders
+Autoencoders represent one of the earliest neural architectures for unsupervised represen- tation learning. Introduced by Rumelhart et al. Rumelhart et al. [1986b], an autoencoder consists of an encoder network fϕ and a decoder network gθ. The encoder maps an input x ∈ Rd to a lower-dimensional latent representation z ∈ Rk, where k < d, and the decoder reconstructs the input from this latent code.
+ 
+Training an autoencoder involves minimizing a reconstruction loss of the form
+
+ 
+
+LAE = Ex∼p
+ 
+
+
+data
+ 
+   x − gθ(fϕ(x))   2 .
+ 
+
+The key contribution of autoencoders is the demonstration that neural networks can learn compact latent representations that capture salient structure in high-dimensional data. Such representations have proven useful for dimensionality reduction, denoising, and feature extraction.
+However, autoencoders are fundamentally deterministic. The latent representation produced by the encoder does not follow a prescribed distribution, and there is no prin- cipled way to sample new data points from the latent space. As a result, classical au- toencoders do not constitute generative models in a probabilistic sense. While they can reconstruct inputs and perform denoising, they cannot generate diverse novel samples, which limits their applicability to tasks requiring uncertainty modeling.
+
+Variational Autoencoders
+Variational Autoencoders (VAEs) introduce a probabilistic latent-variable formulation that enables principled generative modeling and sampling from a learned data distribu- tion. The framework was independently proposed by Kingma and Welling Kingma and Welling [2014] and Rezende et al. Rezende et al. [2014] and represents a foundational approach to stochastic neural generation.
+A VAE assumes that observed data x is generated from an unobserved latent variable z, drawn from a prior distribution p(z), typically a standard multivariate normal distribu- tion p(z) = N (0, I). The generative process is modeled through a likelihood distribution
+pθ(x | z), parameterized by a decoder network. Since the true posterior p(z | x) is gener-
+ally intractable, it is approximated by a variational distribution qϕ(z | x), parameterized by an encoder network.
+Training is performed by maximizing the Evidence Lower Bound (ELBO) on the marginal log-likelihood log pθ(x), given by
+LVAE = Eqϕ(z|x)[log pθ(x | z)] − KL qϕ(z | x)   p(z) ,
+
+where the first term encourages accurate reconstruction of the input, while the second term is the Kullback–Leibler (KL) divergence that regularizes the latent space by enforc- ing similarity to the prior distribution.
+In practice, the encoder network outputs the parameters of a Gaussian distribution in latent space, namely a mean µϕ(x) and standard deviation σϕ(x). To enable gradient-
+ 
+ 
+
+Figure 2.3: Illustration of the Variational Autoencoder (VAE) architecture. The encoder maps the input x to a latent Gaussian distribution parameterized by (µ, σ), from which samples z are drawn using the reparameterization trick and decoded back into data space Wang and Others [2025].
+
+based optimization through stochastic sampling, the reparameterization trick is employed:
+
+z = µϕ(x) + σϕ(x) ⊙ ϵ,	ϵ ∼ N (0, I),
+where ⊙ denotes element-wise multiplication. This formulation allows gradients to prop- agate through the stochastic latent variable during backpropagation.
+An overview of the VAE architecture is illustrated in Figure 2.3, showing the encoder that maps input data to a latent distribution and the decoder that reconstructs the input from samples drawn from this distribution.
+By representing latent variables as probability distributions rather than deterministic point estimates, VAEs enable stochastic generation and smooth interpolation in latent space. During inference, novel samples can be generated by sampling z ∼ p(z) from the
+prior and passing it through the decoder pθ(x | z).
+Despite these advantages, VAEs exhibit notable limitations in high-dimensional and multimodal settings. The Gaussian likelihood assumption and the averaging behavior induced by reconstruction losses often result in overly smooth or blurred samples. In trajectory prediction, this manifests as conservative motion forecasts that fail to capture sharp maneuvers or distinct behavioral modes, such as aggressive lane changes or late braking. Consequently, while VAEs provide a principled probabilistic framework, they are insufficient for modeling the rich multimodal distributions required for realistic multi- agent motion forecasting.
+
+Generative Adversarial Networks
+Generative Adversarial Networks (GANs), introduced by Goodfellow et al. Goodfellow et al. [2014], constitute a major class of generative models that learn a target data dis- tribution through an adversarial training process. In contrast to latent-variable models
+ 
+ 
+Figure 2.4: Architecture of a Generative Adversarial Network (GAN). The generator G maps random noise z to synthetic samples, while the discriminator D attempts to distinguish generated samples from real data Dendorfer et al. [2023].
+
+such as VAEs, GANs do not rely on an explicit likelihood function. Instead, they frame generation as a two-player game between two neural networks with opposing objectives.
+A GAN consists of two components:
+•	a generator G(z), which maps random noise z ∼ p(z) (typically N (0, I)) to syn- thetic samples in data space, and
+•	a discriminator D(x), which outputs the probability that a given sample originates from the true data distribution rather than from the generator.
+An overview of the GAN architecture is shown in Figure 2.4, illustrating the adver- sarial interaction between the generator and discriminator.
+Training a GAN is formulated as a minimax optimization problem:
+
+min max V (G, D) = Ex∼pdata [log D(x)] + Ez∼p(z)[log(1 − D(G(z)))].
+
+Here, pdata(x) denotes the real data distribution and p(z) is a simple prior distribution over latent noise. The generator seeks to minimize this objective by producing samples that are indistinguishable from real data, while the discriminator seeks to maximize it by correctly classifying real and generated samples.
+At the global optimum of this game, the generator perfectly replicates the data dis- tribution, i.e., pg = pdata, and the discriminator becomes maximally uncertain, yielding
+D∗(x) = 1 .
+2
+Under this condition, the GAN objective corresponds to minimizing the Jensen–Shannon divergence between the generated and true data distributions, and the system reaches a
+ 
+Nash equilibrium.
+GANs have demonstrated impressive performance in high-dimensional data genera- tion, particularly in image synthesis, where they are capable of producing sharp and photorealistic samples. Numerous architectural variants, such as DCGANs and Style- GANs, have further improved sample quality and visual fidelity.
+Despite these strengths, GANs suffer from significant practical limitations. Training is often unstable and highly sensitive to hyperparameter choices and network capacity balancing. A common failure mode is mode collapse, where the generator learns to pro- duce only a limited subset of the data distribution, ignoring other valid modes. In the context of trajectory prediction, this behavior is particularly problematic, as it suppresses behavioral diversity and may fail to represent rare but critical maneuvers.
+Furthermore, GANs do not provide an explicit probability density or likelihood es- timate, which complicates quantitative evaluation and principled conditional sampling. These limitations make adversarial approaches difficult to deploy reliably for structured, multimodal prediction tasks such as multi-agent motion forecasting, motivating the con- sideration of alternative generative frameworks.
+
+Attention Mechanism and Transformers
+As an extension of RNN-based sequence models, Vaswani et al. (2017) introduced the Transformer architecture in their paper “Attention Is All You Need”. The key idea is the use of attention, which enables each element of a sequence to dynamically focus on others.
+Given queries Q, keys K, and values V (typically learned projections of input embed- dings), the scaled dot-product attention is computed as:
+  QK⊤ 
+
+where dk is the dimensionality of the key vectors. The softmax ensures non-negative normalized attention weights:
+ 
+
+softmax(z)i =
+ 
+
+ezi
+J
+j=1
+ 
+
+
+
+ezj
+ 
+
+.	(2.6)
+ 
+In practice, this is extended to Multi-Head Attention, where Q, K, and V are projected multiple times into h subspaces. Attention is computed in parallel across these heads and concatenated. This allows the model to attend to different types of information simultaneously.
+Another important component of Transformers is Pre-Layer Normalization (Pre-
+ 
+LN) [Xiong et al., 2020], defined as:
+ x − µ 
+LayerNorm(x) = γ √σ2 + ϵ + β,	(2.7)
+where µ and σ2 are the mean and variance across features, and γ, β are learnable scale and shift parameters. Pre-LN, combined with residual (skip) connections, improves gradient flow and stabilizes training.
+
+Figure 2.5: The Transformer architecture based on Vaswani et al. (2017).
+
+Transformers have become essential in sequence modeling due to their ability to cap- ture complex dependencies and their efficient parallelization on GPUs. They can serve as standalone generative models or as architectural backbones in GANs, VAEs, and diffusion models.
+While traditional generative models like GANs and VAEs have paved the way for AI creativity, they often struggle with training stability and capturing intricate details. Diffusion models represent a fundamental shift in this landscape, offering a more robust and mathematically grounded approach to data synthesis. Instead of attempting to map noise to data in a single leap, these models learn to reverse a gradual process of adding noise until a clear image emerges. In this chapter, we will explore how this "denoising" mechanism allows for unprecedented control and high-fidelity results in modern generative AI.
+ 
+2.4	Diffusion Model Theory
+This section presents the mathematical foundations of diffusion models, including Denois- ing Diffusion Probabilistic Models (DDPM) Ho et al. [2020] and score-based stochastic differential equation models (score-SDE) Song et al. [2021]. The exposition is tailored to motion trajectory modelling.
+We first introduce the forward noising process and derive its closed-form marginal dis- tribution. Subsequently, we formulate the learned reverse process and show how the stan- dard DDPM training objective arises from a variational evidence lower bound (ELBO). We then relate diffusion training to denoising score matching and continuous-time SDE formulations.
+Conditional sampling mechanisms are derived, including classifier guidance and classifier- free guidance (CFG). We provide the interpolation formula between conditional and un- conditional models and present standard sampling algorithms such as the DDPM sampler, DDIM, and the ODE-based view underlying DPM-Solver.
+Throughout this section, the clean trajectory is denoted by
+
+x0 ≡ X ∈ RN ×T ×d,
+
+representing N agents over T timesteps with state dimension d. For mathematical conve- nience, we flatten X into a vector in RD with D = NTd. Each agent i may be associated with a conditioning vector ci, e.g., features extracted by a Transformer encoder.
+
+Forward Diffusion Process
+The forward diffusion process, often referred to as the noising process, serves as the foundation of diffusion-based generative models by systematically transforming the data distribution x0 ∼ q(x0) into a tractable noise distribution. This transformation is math- ematically formulated as a Markov chain that progressively adds Gaussian noise to the data across T discrete timesteps. According to the framework established in recent lit- erature, the joint distribution of the latent variables x1:T conditioned on the initial state x0 is defined by the product of individual transition probabilities:
+
+T
+q(x1:T |x0) =	q(xt|xt−1).	(2.8)
+t=1
+
+Each step in this chain is governed by a Gaussian transition kernel that scales the previous state and injects a small amount of variance, controlled by a predefined variance schedule
+ 
+{βt ∈ (0, 1)}T
+ 
+, which is monoton increasing. This is expressed as
+q(xt|xt−1) = N (xt; √1 − βtxt−1, βtI).	(2.9)
+ 
+By introducing the notation αt := 1 − βt, the process can be viewed as a sequence of operations that gradually diminish the signal of the original data. A key property of this formulation is that it allows for the sampling of any state xt at an arbitrary timestep t directly from the starting point x0, bypassing the need to compute all intermediate steps. Utilizing the linearity of Gaussian distributions and defining the cumulative product
+ 
+α¯t := Qt
+ 
+αi, we can derive the marginal distribution:
+q(xt|x0) = N (xt; √α¯tx0, (1 − α¯t)I).	(2.10)
+ 
+This closed-form expression is critical for efficient training, as it enables the represen- tation of xt through the reparameterization trick as a linear combination of the original
+data and a noise vector ϵ ∼ N (0, I), specifically xt = √α¯tx0 + √1 − α¯tϵ. As the process
+reaches the final timestep T , the schedule is typically designed such that α¯T approaches zero, resulting in a latent representation xT that is nearly equivalent to isotropic Gaussian noise, effectively erasing the structural information of the original input.
+Reverse Denoising Process
+The generative objective of a diffusion model is to invert the forward noising chain and transform an isotropic Gaussian sample into structured data through a sequence of learned Gaussian transitions. While the forward process is constructed explicitly, the reverse process must be derived from the true posterior of the diffusion chain. Starting from the forward Markov process
+
+T
+q(x1:T | x0) =	q(xt | xt−1),	q(xt | xt−1) = N (  αt xt−1, βtI) ,
+t=1
+with αt = 1 − βt and α¯t = Qt	αi, one obtains the closed-form marginal
+q(xt | x0) = N √α¯t x0, (1 − α¯t)I ,
+
+which admits the reparameterisation
+xt = √α¯t x0 + √1 − α¯t ε,	ε ∼ N (0, I).
+As t approaches T , α¯t converges to zero and xT becomes approximately standard Gaus- sian, allowing generation to begin from xT ∼ N (0, I). The reverse process is defined as a Markov chain
+T
+pθ(x0:T ) = p(xT )	pθ(xt−1 | xt),
+t=1
+ 
+and its design is motivated by the exact reverse posterior of the forward diffusion. Using Bayes’ rule, the true conditional distribution can be written as
+q(xt | xt−1)q(xt−1 | x0)
+q(x	| x , x ) =	.
+ 
+t−1	t	0
+ 
+q(xt
+ 
+| x0)
+ 
+Since all involved distributions are Gaussian, their product remains Gaussian and the posterior admits the form
+q(xt−1 | xt, x0) = N µˆt(xt, x0), β˜tI ,
+
+where the posterior variance is given by
+β˜ = 1 − α¯t−1 β ,
+1 − α¯t
+and the posterior mean results from completing the square in the Gaussian exponent,
+ 
+µˆ (x , x ) = √αt(1 − α¯t−1) x
+ 
+√α¯t−1βt
++	x .
+ 
+t	t	0
+ 
+1 − α¯t
+ 
+1 − α¯t
+ 
+This expression reveals that the optimal reverse update is a linear combination of the current noisy state xt and the original clean sample x0. During generation, however, x0 is unknown and must be inferred from xt. Using the forward reparameterisation, one can express
+ 
+ 1 
+x0 = √α¯
+ 
+xt −
+ 
+ 	
+1 − α¯t ε ,
+ 
+which allows the posterior mean to be rewritten entirely in terms of the noise variable,
+µˆ (x , ε) =  1   x − √ βt	ε  .
+ 
+This reformulation is fundamental, as it shows that predicting the reverse mean is equiv- alent to estimating the forward noise component. Instead of directly modelling x0, the neural network is trained to approximate ε through a time-conditioned predictor εθ(xt, t).
+Substituting this estimate into the expression above yields the practical reverse kernel
+
+pθ(xt−1 | xt) = N  µθ(xt, t), σ2I ,
+
+ 
+with
+ 
+
+µ (x , t) =  1   x − √ βt
+ 
+
+ε (x , t)  ,	σ2 = β˜ .
+
+ 
+ 
+Sampling proceeds iteratively according to
+
+xt−1 = µθ(xt, t) + σtz,	z ∼ N (0, I),
+ 
+so that each step reduces the noise level while preserving the correct marginal variance structure. Early steps operate in a nearly Gaussian regime with low signal-to-noise ratio, whereas later steps refine increasingly detailed structure as α¯t grows. The reverse denois- ing process can therefore be understood as progressively estimating and subtracting the noise component of xt, rescaling the signal to match the target variance at time t − 1, and injecting controlled stochasticity to maintain consistency with the true posterior. In this way, the entire generative mechanism emerges directly from the Gaussian algebra of the forward diffusion, and the neural network serves to approximate the analytically derived noise term that characterises the optimal reverse dynamics.
+
+From ELBO to the ϵ-Prediction Loss
+The training objective of diffusion models arises from maximum likelihood estimation and is formulated through a variational bound on log pθ(x0). Since the exact likelihood is intractable due to the latent variables x1:T , we introduce the forward diffusion distribution q(x1:T | x0) and consider the Kullback–Leibler divergence
+KL(q(x1:T | x0)   pθ(x1:T | x0)) ≥ 0,
+
+ 
+which implies
+ 
+
+E	 log  q(x1:T | x0)  ≥ 0.
+ 
+Using the identity pθ(x1:T | x0) = pθ (x0:T ) , we obtain
+E	 log q(x1:T | x0) + log p (x ) ≥ 0,
+ 
+
+and therefore
+ 
+q(x1:T |x0)
+ 
+pθ(x
+ 
+θ	0
+0:T
+ 
+— log p (x ) ≤ E	 log q(x1:T | x0) .
+Taking expectation over q(x0) yields the Evidence Lower Bound (ELBO)
+L	= E	 log q(x1:T | x0) ,
+
+which upper-bounds the negative log-likelihood. Expanding both joint distributions using the Markov structure
+T	T
+q(x1:T | x0) = Y q(xt | xt−1),	pθ(x0:T ) = p(xT ) Y pθ(xt−1 | xt),
+ 	 
+ 
+the bound decomposes into
+
+ 
+q(x
+ 
+| x ) 
+
+   
+ 
+Σ	q(x
+
+ 
+| x , x ) 
+
+   
+ 
+The first term vanishes when p(xT ) = N (0, I) matches the forward marginal, the second term acts as a simple decoder term at t = 1, and the dominant contribution becomes
+T
+Eq  KL q(xt−1 | xt, x0)   pθ(xt−1 | xt)	.
+t=2
+
+Both distributions are Gaussian with identical variance when σ2 = β˜t = 1−α¯t−1 βt, so each
+t	1−α¯t
+KL divergence reduces to a quadratic form in the difference of their means. Using the closed-form posterior mean
+µˆ (x , x ) =  1   x − √ βt	ε  ,	ε = xt√− √α¯tx0 ,
+ 	 
+and the model parameterisation
+µ (x , t) =  1   x − √ βt	ε (x , t)  ,
+ 
+
+ 
+the Gaussian KL simplifies to
+	βt	
+KL =
+ 
+
+
+  ε − ε (x , t)   2.
+ 
+2(1 − βt)(1 − α¯
+ 
+t−1)
+ 
+θ	t	2
+ 
+Consequently, the ELBO becomes a weighted sum of noise-prediction errors,
+L	= Σ w E	   ε − ε (x , t)   2 ,	w = 	βt	.
+In practice, these weights are often simplified or absorbed into the learning rate, leading to the widely used ε-prediction objective
+Lε = Et∼U{1,...,T}, x ,ε   ε − εθ(xt, t)   2 ,	xt = √α¯tx0 + √1 − α¯tε.
+
+Thus, the seemingly simple mean-squared error between true and predicted noise is not heuristic but arises directly from variational maximum likelihood. The Gaussian structure of the forward process ensures that matching the reverse means is equivalent to predicting the forward noise, and the ε-parameterisation transforms the ELBO into a stable and computationally efficient training objective that preserves the probabilistic interpretation of the model.
+ 
+Continuous-Time Diffusion (Score-SDE View)
+Apart from the discrete-time (Markov chain) formulation of diffusion models, one can describe diffusion in continuous time via stochastic differential equations (SDEs). In this view, the forward noising process is defined by an Itô SDE of the form
+
+dx = f (x, t) dt + g(t) dwt,
+
+where wt is a standard Wiener process, f (x, t) is a drift term, and g(t) controls the noise strength. This equation continuously injects Gaussian noise into the data. Under common parameterizations (e.g. Variance Exploding/Variance Preserving SDEs), the marginal p(xt | x0) is Gaussian, typically written as
+p(xt | x0) = N xt; s(t)x0, σ2(t)I ,
+
+where s(t) and σ(t) are deterministic functions of time. As t grows, s(t) decays and σ(t) grows so that xt approaches an isotropic Gaussian, analogous to the discrete-time case where xT is nearly pure noise.
+Reversing this process yields a reverse-time SDE. By Anderson’s theorem (and sub- sequent work by Song et al.), the dynamics of the reverse diffusion are given by
+dx = f (x, t) − g(t)2∇x log pt(x) dt + g(t) dw¯t,
+where w¯t is a Wiener process evolving backward in time, and ∇x log pt(x) is the score function of the marginal at time t. Since the true score is unknown, a neural network sθ(x, t) is trained to approximate it. Equivalently, one can train a network to predict the original clean data x0 from a noisy sample xt by minimizing squared error; this yields the same objective as score matching. In other words, the model learns to map xt to the estimated score or to the denoised sample, enabling sampling of the reverse SDE.
+Importantly, Song et al. also showed that there exists a deterministic probability flow ordinary differential equation (ODE) with the same marginal distributions as the SDE. This ODE is
+dx = f (x, t) − 1 g(t)2∇ log p (x).
+Integrating this ODE from t = T down to t = 0 (starting from xT ∼ N (0, σ2	I))
+deterministically transforms noise into a data sample. In practice, numerical solvers (such as higher-order Runge–Kutta or Heun’s method) are used for stability and accuracy.
+In summary, the continuous-time SDE framework is equivalent to the discrete-time diffusion up to time discretization. We focused on the Markov chain model in this thesis, but the SDE/ODE viewpoint provides an alternative interpretation. It confirms that the same generative process can be seen either as a chain of Gaussian transitions or as
+ 
+solving a continuous stochastic (or deterministic) differential equation, reinforcing the probabilistic foundations of diffusion models.
+
+2.5	Conditional Diffusion and Guidance Techniques
+Modern diffusion models extend beyond unconditional data generation by allowing con- trol over the semantic or contextual attributes of the generated samples. In the context of motion forecasting, this conditioning mechanism is crucial: the goal is not to sample arbi- trary trajectories from the marginal distribution p(x) but rather to model the conditional distribution p(x | c), where c encodes the observed past trajectories, the road geometry, traffic signals, and interactions with other agents. This section provides the theoretical foundation of conditional diffusion processes and the associated guidance mechanisms that enable controllable generation.
+
+Conditional Score
+Recall that the forward diffusion process gradually corrupts data x0 ∼ pdata(x) into a noisy variable xt by adding Gaussian noise according to a variance schedule σ(t):
+
+xt = α(t) x0 + σ(t) ϵ,	ϵ ∼ N (0, I),	(2.11)
+
+where α(t) and σ(t) are monotonically decreasing and increasing functions of t ∈ [0, T ], respectively. The reverse process aims to learn a parameterized vector field sθ(xt, t) that approximates the score function ∇xt log pt(xt) of the marginal distribution. For the conditional case, the model must instead estimate
+
+sθ(xt, t, c) ≈ ∇xt log pt(xt | c),	(2.12)
+
+which describes the direction of highest increase in log probability for samples consistent with the condition c. Training proceeds through the conditional denoising score-matching loss Song and Ermon [2020]:
+L	(θ) = E	¨s (x + σϵ, σ, c) −	¨ ,	(2.13)
+ 
+CDSM
+ 
+x0,c,σ,ϵ ¨ θ	0
+ 
+σ ¨2
+ 
+which enforces that the network predicts the correct score for both the noisy sample and the conditioning context. Notice that ∇xt log pt(xt | c) = ϵ/σ.
+At sampling time, one can integrate either the reverse stochastic differential equation
+(SDE) or its deterministic probability-flow counterpart:
+dxt = −σ˙ (t) σ(t) s x , t, c ,	x ∼ N (0, σ	I),	(2.14)
+ 
+gradually denoising from pure noise to a coherent sample x0 ∼ p(x0 | c).
+Although the conditional diffusion model theoretically learns p(x | c), in practice one often wishes to further amplify the influence of the condition during sampling. This
+process, known as guidance, controls the trade-off between the realism and the adherence to the conditioning signal.
+
+Classifier Guidance
+Dhariwal and Nichol [2021] introduced classifier guidance, which uses a separately trained conditional classifier pcls(c | xt). During sampling, we compute the classifier’s gradient with respect to the noisy input and add it to the model’s score. Formally, the guided score is approximated as
+
+∇xt log p(xt | c) ≈ ∇xt log p(xt) + w ∇xt log pcls(c | xt),
+
+where w > 0 is a guidance weight. Larger values of w drive the samples to satisfy the condition more strictly, at the cost of reduced diversity or possible artifacts. This method gives fine-grained control over conditioning, but requires training an auxiliary classifier on noisy inputs at every diffusion timestep, which can be computationally expensive and limits conditioning to predefined classes.
+
+Classifier-Free Guidance
+Ho and Salimans [2022] proposed classifier-free guidance (CFG) to avoid a separate clas- sifier. The diffusion model is trained to predict noise both conditionally and uncondition- ally by randomly dropping the condition during training (replacing c with a null token
+∅ with probability pdrop). The network thus learns to output
+
+ϵθ(xt, t, c)	and	ϵθ(xt, t, ∅),
+
+where ϵθ is the noise-prediction model. At inference time, these two predictions are combined to adjust conditioning strength:
+ϵCFG = ϵθ(xt, t, ∅) + γ ϵθ(xt, t, c) − ϵθ(xt, t, ∅) ,
+where γ ≥ 1 is the guidance scale. When γ = 1, this reduces to standard conditional sampling. For γ > 1, the model emphasizes the conditional prediction over the uncon- ditional one. Intuitively, this multiplies the conditional score by (1 + γ) and subtracts γ times the unconditional score. Larger γ values increase fidelity to c but can cause the samples to collapse toward a narrower mode of the conditional distribution.
+Classifier-free guidance has become the de facto standard in conditional generation
+ 
+(e.g. text-to-image and trajectory forecasting) because it provides an effective mechanism to tune the influence of the condition without extra model components. In practice one chooses γ by validation (e.g. γ ≈ 2 often works well), balancing adherence to c against sample diversity.
+
+Practical Considerations and Trade-offs
+•	Guidance scale γ: Higher values yield samples more strongly matching c (higher fidelity) but tend to reduce diversity, may introduce artifacts and collapse modes. Lower values allow broader variation but weaker adherence.
+•	Computational cost: CFG requires two model passes per sampling step (condi- tional + unconditional), roughly doubling cost.
+•	Diversity vs. fidelity trade-off. In tasks like multi-agent trajectory generation, choosing γ is critical: too high → all agents behave similarly (collapsed modes), too low → poor conditioning.
+•	Negative prompts and anti-conditioning. One can also compute ϵθ(xt, t, cneg)
+for an unwanted condition and subtract it in guiding to avoid certain attributes.
+
+Extensions and Advanced Guidance
+Recent research has sought to refine guidance techniques further:
+
+•	Time-step or adaptive guidance: Guidance strength γt varies across timesteps (e.g., weaker early, stronger late) to maintain diversity early and fidelity later Adaloglou and Others [2024].
+•	Training-free guidance: Methods that induce guidance at inference time with- out special training overhead (“Independent Condition Guidance”, “Time-step Guid- ance”) Sadat and Others [2024].
+•	Manifold-constrained CFG (CFG++): Introduces constraints to keep sam- pling closer to the data manifold, reducing mode collapse and improving invertibility Chung et al. [2024].
+
+2.6	Forecasting-to-Planning via Controllable Genera- tion
+Autonomous driving means anticipating how other drivers might act and translating that anticipation into safe, realistic maneuvers. This tightly links motion forecasting (how the
+ 
+scene may evolve) with motion planning and control (how the ego vehicle should act in response). Unlike supervised learning tasks with clear labels, future trajectories are complex, uncertain, and strongly context-dependent: given the same history and map layout, multiple outcomes can be plausible at once (e.g., yielding vs. merging, turning vs. going straight). In this chapter, we therefore study approaches that connect prediction to planning and control by treating forecasting as conditional generative modeling: instead of outputting a single “best” trajectory, we aim to model a distribution over possible fu- tures that enables uncertainty-aware and risk-sensitive decisions. A particularly suitable framework for this is MotionDiffuser [Jiang et al., 2023], which uses conditional diffusion models to represent joint multi-agent future distributions and, crucially, supports con- trollable sampling via guidance—making it a natural bridge from trajectory prediction to motion planning.
+
+Trajectory forecasting as conditional generative modeling Let the observed tra- jectory of an agent i be a sequence of 2D positions
+Xi = {(xt, yt)}tobs ,	(2.15)
+
+and its future trajectory be
+t	t	tpred
+Y = {(x , y )}	.	(2.16)
+For a multi-agent scene with N modeled agents, we collect observed histories X =
+{X1, . . . , XN } and futures Y = {Y1, . . . , YN } and aim to model the conditional distri- bution
+p(Y | X, C),	(2.17)
+where C denotes scene context such as map geometry, traffic signals, and interaction cues. Emphasizing the distribution is essential: point estimators (e.g., trained to mini- mize average displacement error) tend to collapse multi-modality into a mean behavior and under-represent distinct intents such as turning, yielding, or merging. This is particu- larly problematic in interactive driving, where planning must remain safe under plausible alternative outcomes. Moreover, autonomous driving is inherently multi-agent : sampling each agent independently from marginal predictors can produce globally inconsistent fu- tures (e.g., mutually incompatible right-of-way behavior or spatial overlap).
+
+Physics-Based Methods One of the first approaches for trajectory prediction are Physics-Based Methods. The Physics-based methods predict trajectories by propagating an agent’s current state with explicit kinematic or dynamic models [?]. Many approaches assume simple motion, most commonly constant velocity (CV) or constant acceleration (CA), and use Kalman filtering to update predictions under uncertainty [???]. These
+ 
+ 
+
+
+Figure 2.6: Estimation of a future trajectory as a sequence of 2-D positions.
+
+linear models are fast and interpretable, but they often fail to capture richer behaviors and become less reliable over longer horizons. To better represent complex motion, some methods introduce multiple discrete motion modes (e.g., CV, accelerating, decelerating, turning) and infer which mode best explains the near future, which is an important skill to have. The Interacting Multiple Model (IMM) framework implements this concept by maintaining a Kalman filter for each mode and combining their outputs with mode probabilities that are updated at each time step. [?]. In circumstances where closed-form distributions are not available, Monte Carlo simulation can be used to sample candidate trajectories from predefined models while enforcing feasibility constraints such as road adherence and collision avoidance [?].
+In conclusion, physics-based approaches have been shown to provide efficient and ex- plainable predictions. However, their hand-crafted dynamics and simplified assumptions limit their ability to model highly interactive, long-horizon behaviour.
+
+Reinforcement-learning-based methods These approaches cast trajectory predic- tion as a sequential decision-making problem, modeling agents as goal-directed entities that act to optimize future outcomes given the current state and long-term intent. Agent motion is typically governed by an explicit cost/reward structure capturing preferences and constraints such as comfort, safety, energy efficiency, and compliance with traffic rules.
+A common subclass comprises planning-based, goal-informed predictors: given a start state and a target location, an agent is assumed to follow an optimal path that minimizes a hand-crafted cost (e.g., smoothness, obstacle proximity, and scene semantics). Yi et al. (2016) construct an energy map by representing the scene layout, static objects, and dynamic agents as energy fields and combining them into a unified landscape; optimal
+ 
+trajectories are then computed using the Fast Marching algorithm. Karasev et al. (2016) extend this line of work by formulating prediction as a Jump Markov Decision Process, where the agent’s goal is treated as a latent, slowly varying variable inferred from recent behavior; a stochastic policy then generates action sequences that maximize expected cumulative reward while accounting for uncertainty and nonlinear dynamics. González et al. (2016) model driver behavior with an MDP over discrete states and learn the under- lying cost parameters via Inverse Reinforcement Learning from expert demonstrations, enabling the model to capture nuanced behaviors such as risk aversion and interaction patterns. In follow-up work, González et al. (2017) incorporate Dynamic Bayesian Net- works to better represent multi-agent dependencies over time.
+Despite their interpretability, RL-based methods are limited by strong rationality assumptions, i.e. that agents act (near-)optimally with respect to an internal cost. In essence, human behaviour can be defined as bounded rational, or inconsistent, due to the impact of distractions and external constraints. These factors have the capacity to compromise performance in real-world settings. Nevertheless, it presents preliminary methodologies for multiagent control, which are utilised in this paper.
+
+Attention-based models Nayakanti et al. (2023) discuss how attention mechanisms can fuse multiple modalities in motion forecasting (e.g., agent history, roadgraph context, and interactions). They distinguish three common fusion strategies:
+•	Late fusion: Each modality is encoded separately (often with attention-based en- coders), producing modality-specific representations that are then combined (typ- ically via flattening and concatenation) before downstream processing or the final prediction head.
+•	Early fusion: Modalities are projected into a shared embedding space early, and a single global attention module operates on the combined tokens/features, enabling cross-modal interactions from the start.
+•	Hierarchical fusion: Modalities first undergo intra-modal attention indepen- dently; the resulting representations are then merged and passed through an addi- tional attention stage in a shared space to explicitly model cross-modal interactions.
+The best strategy depends on the task, modality structure, and compute budget; empir- ically, Nayakanti et al. (2023) report that early-fusion approaches scale most efficiently with the number of model parameters.
+
+Other generative approaches: VAEs and GANs Before turning to diffusion mod- els, we briefly review alternative generative families that have been widely used for multi- modal trajectory prediction. Conditional VAEs (CVAEs) generate a distribution over
+ 
+future trajectories conditioned on the past motion and context (e.g., interactions or scene cues). For example, DESIRE [?] combines a CVAE-style trajectory sampler with recur- rent refinement that scores and adjusts candidates over time. A common limitation of CVAEs, however, is the use of a simple (often standard Gaussian) latent prior, which can mismatch the true latent structure of complex behaviors and introduce modeling bias, especially for strongly multi-modal futures.
+Several works address this by enriching the latent structure or the regularization. ? (or similar CVAE interaction-focused setups) encode interactions via spatiotemporal graphs and employ discrete categorical latents to represent high-level behavior modes, improving interpretability and prior alignment. ? propose Wasserstein autoencoder variants with attention mechanisms and Wasserstein-based regularizers to better match aggregated posteriors and priors. Going further, ? introduce conditional normalizing flows inside the VAE (CF-VAE), yielding more expressive conditional priors/posteriors that can cap- ture complex, multi-modal trajectory distributions, particularly when visual context is available.
+GAN-based approaches provide an alternative route to diversity. ? propose an LSTM encoder–decoder generator with social pooling to model interactions and a discriminator that distinguishes plausible from implausible trajectories. Subsequent methods (e.g., SoPhie [?], MATF-GAN [?]) integrate map context (often via CNN features) and social interaction cues, while modifying discriminator designs to evaluate trajectory realism more effectively. Despite strong sample diversity, GANs are often harder to train reliably and can suffer from instabilities such as mode collapse [?].
+
+Focus of this thesis: planning and control via conditional generation In this thesis, we are particularly interested in planning- and control-oriented forecasting: rather than generating futures that are merely likely, we want to steer predictions toward out- comes that satisfy explicit objectives or constraints (e.g., reaching a goal, respecting waypoints, avoiding collisions, or expressing domain-specific behavior). This naturally calls for generative models that can be conditioned on rich context and, crucially, allow controllable sampling at inference time. In the following, we therefore emphasize diffu- sion models, since conditioning and guidance mechanisms provide a principled handle for steering trajectory generation toward desired plans.
+
+Diffusion models for conditional trajectory generation Diffusion models are well- suited to generate future trajectories y conditioned on context c—where c can include past trajectories, inter-agent interactions, map information, or goal locations. A standard way to incorporate conditioning is to extend the score/denoiser to accept c as an additional input, e.g.,
+sθ(x, t, c)	or	Dθ(xt; σ(t), c).
+ 
+ 
+Figure 2.7: Effect of classifier-free guidance strength on goal conditioning. The blue seg- ment shows the observed history, orange samples are generated futures, and the magenta star denotes the goal. Larger guidance values (illustrated as λ) yield stronger goal adher- ence, typically at the cost of reduced sample diversity (adapted from Niedoba and Others [2023])
+
+The model is trained on paired data (x0, c) from a conditional dataset Dc = {(xi, ci)}N  ,
+using a conditional denoising objective of the form [Jiang et al., 2023]:
+E(x0,c)∼Dc Et∼p(t) Eε∼N(0,σ(t)2I)hw(t) ¨Dθ  s(t)x0 + ε; σ(t), c  − x0¨2i.
+
+At sampling time, the condition c is provided at every reverse-time step of the ODE/SDE solver, thereby guiding the entire generation process toward samples consistent with the context—a property that is particularly attractive for planning, where constraints should influence the trajectory globally rather than only at initialization.
+
+Classifier-free guidance as a control knob A key advantage for controllable gener- ation is classifier-free guidance (CFG) [Ho and Salimans, 2022]. The conditional denoiser Dθ(x; σ, c) is trained while randomly dropping the condition for a fraction of training examples (replacing c with a null token ∅). This effectively trains both conditional and unconditional behaviors within a single network. During sampling, the guided score is constructed as
+sˆθ(x, t, c) = (1 + γ) sθ(x, t, c) − γ sθ(x, t, ∅),	(2.18)
+where γ ≥ 0 is the guidance scale. Increasing γ enforces stronger adherence to c (e.g., stronger goal/waypoint following), typically at the cost of reduced sample diversity. This is directly aligned with planning and control: γ acts as an explicit “control knob” that trades off exploration (diverse plausible futures) against exploitation (trajectories that satisfy specified objectives). As shown in Fig. 2.7, stronger guidance increases goal ad- herence while reducing trajectory spread.
+
+Planning-oriented conditioning and constrained sampling In practice, planning- oriented control with diffusion models is achieved by combining context conditioning with guided sampling. Methods such as MotionDiffuser condition the denoiser on scene to-
+ 
+kens (agent history, roadgraph/map cues, traffic lights, and interactions), e.g., via cross- attention, and then enable explicit control at inference time by injecting differentiable constraint costs into the reverse diffusion dynamics. Concretely, if Dθ(xt, t, c) denotes the denoiser and L(·) a differentiable cost, the score can be modified as
+
+sguided(x , t, c) = s (x , t, c) + λ	L D (x , t, c) ,	(2.19)
+which corresponds to sampling from a density proportional to p(x | c) q(x) with q(x) ∝ exp(−L(x)). For motion forecasting, typical choices are attractor costs that pull tra- jectories toward specified waypoints/goals (using a target tensor and mask over selected timesteps) and repeller costs that penalize agents entering a safety radius to reduce col- lisions in joint futures. This provides a direct “control knob” λ that trades off realism against constraint satisfaction: overly strong enforcement can produce unnatural motion, while purely data-driven sampling may fail to meet tactical requirements.
+
+Attractor and Repeller Potentials. For trajectory generation, typical constraint functions include:
+Lattr =	(Dθ(xt, t, c) − xtarget) ⊙ Mtarget 1 ,	(2.20)
+Mtarget 1 + ε
+Σ ̸	max 0, 1 − 1   Di − Dj   2 
+Lrep = 	i=j	r	,	(2.21)
+Nactive + ε
+
+In this thesis, we exploit this mechanism to steer generated futures with rich con- ditions (goals/waypoints, map semantics, interaction context) and controllable guidance (classifier-free guidance and/or cost gradients), and we evaluate how well such guided generation remains robust under domain shifts between simulation and real-world driv- ing data.
+
+2.7	Notizen
+Guidance methods provide an intuitive interface between data-driven generative modeling and classical control objectives. Classifier-based approaches offer precise control at the cost of extra networks, while classifier-free guidance achieves comparable results with elegant simplicity. Constraint-based guidance, on the other hand, bridges diffusion models with differentiable planning frameworks, enabling safety or goal priors to be directly integrated into the generative process.
+In this thesis, the guidance mechanisms serve two main purposes: (1) to enhance the controllability of the diffusion model for multi-agent motion forecasting, and (2) to study how domain gaps, quantified via Optimal Transport, affect the ability of guided
+ 
+sampling to remain valid across domains. The following sections build on this theoretical foundation to describe the model architecture and experimental methodology for assessing these effects.
+Wir betrachten die bedingte Verteilung pθ(x ; c) über zukünftige Trajektorien x gegeben Szenenkontext c (Straßengraph, Ampeln, Historien, Interaktionen). Gelernt wird nicht direkt die Dichte, sondern der Score ∇x log pθ(x; σ, c) über Rauschlevel σ. Ein bedingter
+Denoiser Dθ(· ; c, σ) wird über conditional denoising score matching trainiert:
+E(x,c) Eσ Eϵ∼N(0,σ2I)¨Dθ(x + ϵ ; c, σ) − x¨2	−→ min,	(2.22)
+
+wobei der Score aus dem Denoiser folgt als
+∇ log p (x; c, σ) = Dθ (x; c, σ) − x.	(2.23)
+
+Die Stichprobengewinnung erfolgt über die deterministische ODE-Form der Diffusions- dynamik (Probability Flow ODE) mit z. B. Heun-Integrator:
+dx(t)			2
+= −σ˙ (t) σ(t) ∇ log p x(t); c, σ(t) ,	x(T ) ∼ N (0, σ	I),	(2.24)
+
+wobei σ(t) monoton fällt und die Generierung durch iteratives Denoising von reinem Rauschen ermöglicht.
+
+Netzwerk-Preconditioning.	Zur Stabilisierung wird der Denoiser in der Form
+
+Dθ(x; c, σ) = cskip(σ) x + cout(σ) Fθ cin(σ) x ; c, cnoise(σ)	(2.25)
+
+parametrisiert, wobei Fθ das eigentliche Netz ist und cin, cskip, cout, cnoise geeignete Skalierun- gen für Eingabe, Skip-Pfad, Ausgabe und Noise-Einbettung sind (z. B. gemäß Jiang et al. [2023]).
+ 
+
+Chapter 3 Methodology
+3.1	Overview of Approach
+Our goal is to learn a conditional generative model of multi-agent motion that produces realistic, map-compliant future trajectories while allowing explicit control over high-level behaviors (e.g., turn-left, go-straight, turn-right ). We formulate this as conditional diffu- sion over the latent future states, conditioned on (i) observed history, (ii) the roadgraph, and (iii) a behavioral condition c derived from scene geometry. Formally, we model:
+pθ xfuture | xpast, M, c ,	(3.1)
+
+where xpast denotes the first Tobs timesteps, xfuture the next Tpred timesteps, M encodes the lane-level map, and c is a compact control signal representing the intended maneuver class.
+
+Problem setup. Each scenario is represented as an agent tensor x ∈ RA×T×C, with up to A = 32 agents over T = 30 timesteps and C = 3 kinematic features (x, y, θ). For rotational and translational invariance, all scenes are expressed in the ego-centric reference frame of a chosen vehicle. The roadgraph M is represented as up to Npoly = 500 resampled lane-center polylines, each with Npts = 10 vertices, all transformed into the same local frame. A binary validity mask handles padding and missing data for both agents and polylines.
+
+Conditioning signal.  To enable controllability, we introduce a behavioral condition
+c. For each scene, we compute the net heading change over the prediction horizon:
+
+T
+.	(3.2)
+t=1
+ 
+With a threshold τ (empirically chosen), trajectories are labeled as left if ∆θ > τ , right if
+∆θ < −τ , and straight otherwise. This categorical label is one-hot encoded and mapped to a fixed-dimensional embedding via a lightweight MLP. During training, the ground- truth label is used; during inference, the user (or downstream planner) specifies c to guide the sample.
+
+Conditional diffusion formulation. We adopt the preconditioned denoising for- mulation [Karras et al., 2022]. Let xlat denote the latent future slice (the last Tpred timesteps), and σ the noise level sampled from a log-normal schedule. We corrupt xlat with Gaussian noise n ∼ N (0, σ2I) to obtain x = xobs   (xlat + n). The denoiser Fθ operates on this preconditioned input and predicts a condition-aware reconstruction:
+
+Dθ(x; σ, c) = cskip(σ) x + cout(σ) Fθ cin(σ) x, cnoise(σ), M, c ,	(3.3)
+
+where cin, cout, cskip, cnoise are standard EDM preconditioning scalars. The training objec- tive minimizes a noise-weighted mean squared error (MSE) between Dθ and the clean target y = xobs   xlat, masked to valid entries:
+L = Eσ,x,nh w(σ)   Dθ(x + n; σ, c) − y  2	i,	(3.4)
+
+ 
+where
+ 
+
+2	2
+w(σ) = 	data ,	(3.5)
+(σ σdata)2
+ 
+and σdata = 0.5 follows the preconditioning schedule. The loss is computed only on the latent future slice and valid agent-time entries.
+
+Network and conditioning injection. The denoiser Fθ is implemented as a late- fusion attention architecture, following Niedoba and Others [2023]. (1) The agent stream processes temporal tokens with self- and agent-attention layers. (2) Roadgraph features are encoded in parallel. (3) Cross-attention injects the roadgraph context into the agent stream at selected depths.
+Conditioning c is injected in two complementary ways: ÜBERPRÜFFE!!!!!!!
+
+1.	Feature-level conditioning: The condition embedding is concatenated to per- agent tokens (broadcast over agents and timesteps) alongside the noise-level em- bedding cnoise(σ). In practice, this occurs within embed_features(), which forms the joint token containing (x, y, θ), noise, and condition.
+2.	Attention-level conditioning: The same embedding gates the key/value projec- tions in selected attention blocks, providing maneuver-aware modulation without disrupting geometric reasoning.
+ 
+This dual conditioning increases robustness: feature-level injection ensures direct vis- ibility of c in the input, while attention-level gating adjusts where and how strongly the network attends depending on the intended maneuver.
+
+End-to-end training loop.	Our training pipeline proceeds as follows:
+1.	Batch construction: The MapDataset loads a scene, producing tensors for agents, masks, roadgraph polylines, and scaling statistics (µ, σ).
+2.	Noise sampling: The function sample_noise() draws σ, corrupts the future slice, and computes (cin, cout, cskip, cnoise).
+3.	Embedding: embed_features() assembles tokens including (x, y, θ), noise, and condition embeddings, applying cin to the future tokens.
+4.	Forward pass: The Denoiser executes agent-attention, cross-attention with map features, and MLP refinement; output is restricted to the future slice.
+5.	Loss computation: We form Dθ = cskipx + coutFθ and compute masked MSE to the clean future, scaled by w(σ).
+6.	Optimization: Adam optimizer with linear learning-rate ramp-up, mixed-precision (AMP), gradient clipping, and periodic validation.
+All tensors (parameters, data, buffers) are placed on a single device (GPU if available), and masks are propagated through attention and loss operations to prevent padded entries from influencing training.
+
+Inference and conditional sampling.	At test time, we fix the observed history xpast, the roadgraph M , and choose a desired condition c (e.g., “turn-left”). We sample an
+initial Gaussian latent x(0) ∼ N (0, σ2	I) and run a deterministic ODE sampler (Heun’s
+2nd order) using the same preconditioning and embeddings as during training. At each step, we build the full sequence (xpast   x(i)), apply cin(σi) and the condition embedding c, evaluate the denoiser, and integrate toward lower noise σi+1. After N steps, the final x(N) is descaled using the stored per-scene statistics. This inference procedure, implemented in calculate_validation_loss_and_plot(), also computes masked validation losses and generates trajectory visualizations.
+
+Why conditioning helps. n diffusion-based trajectory generation, conditioning plays a crucial role in improving both the realism and controllability of the produced futures. An unconditioned diffusion model must represent all possible maneuvers within a single score field, including going straight, turning left, turning right, slowing down, or per- forming a lane change. Because these behaviors can be fundamentally different from one
+ 
+another, the model is implicitly forced to average across them. In complex road environ- ments, this often leads to trajectories that blend multiple modes, resulting in unrealistic behavior such as drifting forward when a turn is intended, producing overly smooth curves that do not match any real maneuver, or failing to align with the structure of the road map. By contrast, a conditioned diffusion model learns a set of mode-specific score fields that are indexed by a behavioral control variable, which explicitly indicates the intended maneuver. This allows the model to specialize its internal representation and denoising dynamics for a particular type of motion. For example, when the condition specifies a left turn, the model can focus on generating trajectories with sharper curvature, ap- propriate changes in orientation, and alignment with left-turn lanes in the map, rather than compromising between multiple possible directions. As a result, mode fidelity is significantly improved and the tendency toward ambiguous, average behavior is reduced. In the context of autonomous driving, this distinction is especially important because future vehicle motion is inherently multimodal and cannot be uniquely determined from past observations alone. At an intersection, for instance, the same past trajectory might reasonably lead to several different futures, depending on the driver’s intention or route choice. Without conditioning, the model has no mechanism to resolve this ambiguity and is forced to produce a compromised prediction. Conditioning provides a direct way to express high-level intent and therefore makes it possible to generate trajectories that are consistent with a specified goal or maneuver. This not only increases realism, but also en- ables controllable sampling of future paths, which is highly valuable for downstream tasks such as motion planning, scenario analysis, and safety evaluation in autonomous vehicle systems. By explicitly incorporating behavioral intent into the generative process, the model moves beyond passive prediction and becomes an active, controllable component within a broader decision-making pipeline.
+
+Practical considerations. THIS PART RIVHTIG SCHREIBEN!!!!!!!! Several practical design choices proved to be crucial for stable training and realistic trajectory generation in our diffusion-based motion forecasting framework. A first important aspect concerns the consistent use of masking throughout the entire pipeline. All attention operations as well as the loss computation explicitly respect the provided masks in order to avoid any leakage from padded or invalid entries. Since the number of agents and the available trajectory length vary across scenes, unmasked attention would allow the model to incorporate artificial patterns from padding regions, which would negatively affect both training stability and prediction quality.  By strictly enforcing these masks in all modules, the network is forced to learn only from physically meaningful and valid data, which significantly improves robustness and generalization to unseen scenes.
+Another key factor influencing performance is the choice and consistency of the dif- fusion noise schedule. In diffusion-based models, the variance schedule σ(t) determines
+ 
+the magnitude of the injected noise and therefore directly affects the difficulty of the denoising task at each timestep. In our experiments, we observed that even small mis- matches between the schedule used during training and the one applied during inference can lead to unstable behavior and noticeable degradation in trajectory quality. For this reason, we carefully ensured that the same σ-schedule is applied in both phases. This strict alignment stabilizes the optimization process, leads to smoother convergence, and improves the model’s ability to generalize during sampling, as it is always evaluated under conditions consistent with its training distribution.
+The location at which conditioning information is injected into the network also plays a decisive role in the overall performance. In our approach, the explicit behavioral control signal—derived from the future motion direction of the ego agent (e.g., straight, left turn, or right turn)—is first projected into the latent space and added to the trajectory embeddings on the future segment. This feature-level conditioning alone already provides improved controllability and helps the model to align its predictions with the intended maneuver. However, in complex environments characterized by dense interactions and intricate road topologies, we found that an additional integration of the control signal at the attention level further enhances robustness. By conditioning the attention mechanism itself, the model can reinterpret spatial and temporal relationships among agents and map elements under the specified behavioral intent, which is particularly beneficial in scenarios such as intersections, lane changes, and merging events.
+To further improve flexibility and increase the diversity of generated trajectories, we optionally employ classifier-free guidance (CFG). During training, the conditioning signal is randomly dropped with a small probability puncond, which in our implementation is defined by the parameter P_UNCOND. This enables the network to learn both conditional and unconditional generation within a single model. During inference, the two modes are combined according to
+ϵ˜ = (1 + w) ϵcond − w ϵuncond,
+where ϵcond and ϵuncond denote the conditional and unconditional noise predictions, re- spectively. The scalar w corresponds to the guidance strength (cond_scale in our code). Lower values of w encourage higher diversity by allowing the model to explore multiple plausible futures, whereas higher values enforce a stronger adherence to the specified behavioral condition and lead to more deterministic, goal-aligned trajectories.
+In summary, our method extends standard trajectory diffusion models by introduc- ing an explicit behavioral control variable that is consistently incorporated at both the embedding and attention levels. The entire system is trained end-to-end using a pre- conditioned denoising objective, ensuring numerical stability across different noise scales. At inference time, classifier-free guidance allows for controllable yet diverse trajectory generation while maintaining strong consistency with the underlying road geometry. Due
+ 
+to its modular design and the use of standard deep learning components, the proposed framework integrates seamlessly into the existing codebase and is fully compatible with efficient mixed-precision training on clustered GPU systems.
+
+3.2	Dataset Description
+This section introduces the dataset used to train, validate, and evaluate our diffusion- based trajectory generation model. We rely exclusively on real-world urban driving data from the nuPlan benchmark (NuPlan v1.1) together with its standardized map/roadgraph representation. This choice is motivated by two requirements that are central to learning- based motion forecasting: (i) exposure to realistic and heterogeneous traffic behavior observed in natural driving, and (ii) a unified, reproducible data and map representation that enables scalable learning and consistent preprocessing across a large corpus.
+
+Real-World Data Source: nuPlan
+The nuPlan dataset (v1.1) provides a large-scale collection of real-world driving logs across multiple cities, which we use as our primary data source. Specifically, nuPlan v1.1 comprises approximately 1282 hours of driving recorded in four cities (Boston, Pittsburgh, Las Vegas, Singapore). It includes dense multi-agent interactions and high-definition map context (lane geometries, traffic light states, etc.). Table ?? summarizes key attributes of the nuPlan data used in our work.
+
+Standardized Traffic Graph Dataset from NuPlan v1.1
+To facilitate efficient learning, we employ a public standardized graph dataset derived from nuPlan v1.1. Using the CommonRoad-Geometric tool, each nuPlan scenario is con- verted into a heterogeneous graph in PyTorch-Geometric format. In this graph, nodes represent dynamic agents (vehicles) and static map elements (lanelets), while typed edges encode vehicle–vehicle and vehicle–lanelet relationships. We load these into PyTorch- Geometric HeteroData objects for batching. Table 3.1 summarizes the resulting repre- sentation. This unified graph structure supports variable numbers of agents and explicitly captures spatial relationships, enabling consistent preprocessing and learning across the entire dataset.
+
+3.3	Real-World Data Source: nuPlan
+Standardized Traffic Graph Dataset from NuPlan v1.1 Although nuPlan pro- vides rich real-world driving logs, the raw data requires substantial processing before it can be used in modern deep learning pipelines. To reduce curation overhead and improve
+ 
+Table 3.1: Standardized traffic graph representation (CommonRoad/PyG) used for nu- Plan scenarios.
+
+Component	Description
+ 
+Format	CommonRoad XML scenario (vectorized map + tracks) Interface	 PyTorch-Geometric HeteroData (graph objects)
+Node types	Agents (vehicles), Lanelets (map segments)
+Edge types	agent–agent interactions, agent–lanelet associations
+Benefit	Variable agent count; explicit relational structure; batched GNN training
+
+reproducibility, we use a standardized traffic graph dataset derived from NuPlan v1.1 by converting scenarios to the CommonRoad format and extracting graph-structured scene representations with the CommonRoad-Geometric (cr-geo) toolchain.
+Each scene is represented as a heterogeneous graph compatible with PyTorch-Geometric: nodes correspond to dynamic traffic participants (restricted to passenger cars in our experiments) and map entities (lanelets), while typed edges encode relations such as agent–agent interactions and agent–lanelet associations. The graphs are stored in PyG’s HeteroData format, enabling efficient batching with variable numbers of agents and pro- viding an explicit representation of interaction structure and road topology that is hard to capture consistently with fixed-size tensors..
+
+Geographic Coverage, Dataset Structure, and Scenario Selection The real- world data used in this thesis is derived from the nuPlan benchmark, a large-scale urban driving dataset recorded from human-operated vehicles at 5 Hz across four metropolitan areas: Boston, Pittsburgh, Las Vegas, and Singapore. The geographic and regulatory diversity of these cities (including left-hand traffic in Singapore) yields heterogeneous driving patterns and interaction dynamics, making nuPlan a strong basis for multi-agent motion forecasting. Each scenario provides time-synchronized tracks of surrounding traf- fic participants together with high-definition map context (lane topology, boundaries, and traffic light states), enabling models that jointly reason about agent interactions and road semantics.
+To support scalable and reproducible experimentation, we use a standardized dataset derived from NuPlan v1.1 by converting scenarios to the CommonRoad format and ex- tracting heterogeneous traffic graphs with the CommonRoad-Geometric toolchain. The resulting representation is compatible with PyTorch-Geometric and encodes dynamic agents and map entities (lanelets) as node types connected by typed relational edges. The standardized archives are organized as city-level splits (Boston, Singapore, Pitts- burgh), which facilitates controlled cross-city generalization studies.
+From the available corpus, we randomly select 1500 scenarios, balanced across the four cities, and split them into 1300/100/100 for training/validation/testing. Scenarios are stored as CommonRoad XML files with a unified representation of trajectories, lane-level
+ 
+Table 3.2: Key characteristics summary of the dataset Nuplan referenced in this thesis.
+
+Characteristic	Value
+ 
+Total driving duration	1,282 hours
+Cities	Boston, Pittsburgh, Las Vegas, Singapore Sampling frequency	5 Hz
+Scenario duration	6 s
+Observation window	2 s (10 timesteps)
+Prediction window	4 s (20 timesteps)
+Selected scenarios	1,500
+Split	1,300 train / 100 val / 100 test
+Agent type used	Cars only
+Stationary agents	Removed to improve motion diversity
+
+topology, and metadata. Dynamic agents are represented by state vectors (xt, yt, θt, vt); in this thesis we retain (x, y, θ) as inputs and omit velocity, since it can be approximated from finite differences if needed. While nuPlan includes multiple agent classes, we restrict the dataset to passenger cars and filter out all other types to reduce heterogeneity and focus learning on car-like interaction and maneuver dynamics.
+
+3.4	Data Preprocessing
+The preprocessing pipeline (as implemented in map_preprocessing.py) converts raw sce- nario XML files into fixed-size, ego-centric tensors suitable for a multi-agent diffusion model. It begins by loading and parsing CommonRoad-formatted scenario files (here derived from nuPlan), then filters and transforms agent data into an ego-centric frame, extracts relevant road geometry (lanelet centerlines), and finally aligns trajectories to a uniform temporal grid with normalization. Each step is carefully implemented in code, ensuring that only valid agents are kept and that all outputs have consistent shape and scale. The result is a structured dataset of segments, each containing observed/predicted trajectories, map polylines, masks, and normalization parameters, ready for training or inference in a graph-based model.
+
+Scenario Loading and Parsing The pipeline reads each scenario’s CommonRoad XML file using xml.etree.ElementTree. It first extracts road geometry by finding every
+<lanelet> element.  For each lanelet, it parses the <leftBound> and <rightBound>
+<point> coordinates (x,y). If both bounds are present and have matching point counts, it computes the lane’s centerline by averaging corresponding left/right points . Each lanelet is stored as a dictionary of ID and lists of points (left, right, center). Next, the code iterates over every < dynamicObstacle > element to collect agents’ trajectories. For each obstacle (vehicle), it reads the < initialState > (time, x, y, heading) and all
+ 
+subsequent < state > entries under < trajectory >. All valid (t, x, y, θ) tuples are collected into a list, sorted by time, and duplicates removed. The end result is an agent list where each agent has an ID and a NumPy array of time-stamped states (raj = [[t, x, y, theta], . . . ]). If no obstacles are found, the scenario’s time horizon is treated as zero. Otherwise the code computes the overall maximum time T from all agents’ trajectories to determine how many segments (windows) to create. Before being used as input to the diffusion model, the real-world (NuPlan) dataset undergo a systematic preprocessing procedure to ensure consistency, invariance, and compatibility with the model architecture. The goal of this pipeline is to convert heterogeneous trajectory and map data into a compact tensor representation that is translation- and rotation- invariant, normalized in scale, and augmented for data diversity. The entire preprocessing is implemented within a custom MapDataset class, which produces training-ready tensors for agents, maps, and conditioning variables.
+
+Agent Filtering Once the raw trajectories are loaded, the code filters and selects ego candidates and other agents for each segment. The core function is transform_segment_to
+_ego_perspective, which takes the list of all agent trajectories and a time window (start time, length = num_timesteps). Inside this function, agents whose trajectory includes the window’s last observed timestep (transform_time = start+obs_len−1) are marked
+as eligible ego vehicles. Agents with empty or malformed trajectories (wrong shape, miss-
+ing data) are either skipped or represented by a zero-filled trajectory (all mask=false). In practice, ego_candidates_ids collects those agent IDs whose trajectory contains the transform time. If no candidates are found, the segment is skipped. After transforming all segments, the MapDataset class optionally enforces a single-ego policy or allows mul- tiple egos per segment. With single_ego = True (default), it sorts candidate ego IDs and selects the first valid one alphabetically, verifying that this agent indeed has valid data at the transform time. Otherwise, it can iterate over all valid ego agents in the segment. Finally, the dataset enforces a maximum number of agents (max_agents). By construction, the ego is always included first, and then other agents (sorted by ID) are added until the limit is reached. If fewer than max_agents are present, the remaining slots are filled with zero-padded trajectories. This ensures that the output tensors always have shape (max_agents, num_timesteps, 4), where each agent’s last coordinate channel is a validity mask.
+
+Maneuver Condition Embedding Each agent’s future heading is compared to its past heading to extract a coarse turn intention. For each reference agent, we compute a discrete maneuver condition c ∈ {left, straight, right}, derived from the heading
+ 
+change:
+
+
+
+We assign:
+ 
+
+30
+∆θ =	θk+1 − θTk .	(3.6)
+k=10
+
+
+left,	if ∆θ > τ,
+c = right,	if ∆θ < −τ,
+straight,	otherwise,
+ 
+and threshold it at τ = 15◦ to assign one of three classes. In code, the helper dir_onehot_from_theta (in cond_func.py) implements this logic: it sums the wrapped heading increments over
+the prediction horizon and applies the ±15◦ rule to output a one-hot vector of length 3
+(indexed as [right, straight, left]).
+The resulting one-hot condition (size 3) is then passed through a small feed-forward network (the CondProj MLP) to produce a 256-dimensional embedding ec. This condition embedding is broadcast to all agents and timesteps and concatenated with each agent’s other features (the sinusoidal encodings of its position (x, y), heading θ, and the noise- level embedding). In other words, the denoiser’s input token for each agent becomes
+
+f = PE(x), PE(y), PE(θ), PE(cnoise), ec .
+
+In this way, the diffusion model receives an explicit high-level intent (left/straight/right turn) alongside the low-level state features, allowing it to condition its trajectory predic- tions on the maneuver category.
+
+Ego-Centric Transformation A key step is expressing all trajectories and map points in each ego agent’s local coordinate frame. For the chosen ego vehicle in a segment, its global position and heading at the last observed timestep are retrieved. The code then iterates over all agents and computes their relative positions. In particular, for each valid point of another agent at time t, the absolute coordinates
+
+(xabs, yabs, θabs)
+
+are translated by subtracting the ego’s
+
+(xego, yego)
+
+and rotated by −θego (the ego heading). The formulas are
+
+xrel = (xabs − xego) cos(−θego) − (yabs − yego) sin(−θego),	(3.7)
+yrel = (xabs − xego) sin(−θego) + (yabs − yego) cos(−θego),	(3.8)
+ 
+and the relative heading
+θrel = θabs − θego
+is wrapped into [−π, π). The code precomputes cos(−θego) and sin(−θego) for efficiency. This transform is implemented in transform_segment_to_ego_perspective: it builds a local timeline of length num_timesteps for each agent, fills valid (t, x, y, θ) points, and applies the rotation/translation to get ego-centric trajectories. Agents that have no valid points in the window get zero arrays.
+A similar transformation is applied to static map points: the helper function transform_points(poi ego_state) subtracts the ego’s position and applies the same rotation to each 2D point.
+This is used below to bring lanelet centerlines into ego coordinates.
+
+Lanelet and Map Feature Extraction	The road network (lanelets) is processed to provide contextual map features around the ego. After parsing, each lanelet centerline is transformed to the ego’s frame using the same translate-then-rotate logic. In practice, for each lanelet with a computed center polyline, the code calls transform_points(center_pts, ego_state) to obtain the lane in ego coordinates. It then measures the distance of that polyline to the ego: specifically, it takes the first point of the centerline (x0,r, y0,r) and computes its Euclidean distance from the origin.
+To limit the number of polylines, the code sorts all lanelets by this distance and keeps only the nearest num_polylines (default: 30). For each selected lanelet center, it uniformly resamples the polyline to a fixed number of points (num_points, e.g. 10) using the resample_polyline function. This function computes cumulative distances along the original polyline and interpolates new points at equally spaced intervals. If there are fewer points than requested or issues occur, it falls back to simple padding or constant points (e.g. returning repeated endpoints).
+The chosen polylines are then stacked into a tensor of shape
+
+(num_polylines, num_points, 2).
+
+A boolean mask of shape (num_polylines, ) marks which polylines are real versus padded zeros. All coordinates in the polylines are expressed in the ego frame, ready to serve as map context. In summary, this module produces a fixed-size set of map features (nearby lane polylines) aligned with the ego’s perspective.
+
+Trajectory Resampling and Normalization The pipeline imposes a fixed temporal grid on agent trajectories and normalizes all data by scene statistics. Each scenario’s total time horizon T is divided into non-overlapping segments of length
+
+num_timesteps = obs_len + pred_len.
+ 
+The code loops over segment indices i = 0, 1, . . . , N −1, setting start = i·num_timesteps. For each segment, all transformed agent trajectories are already aligned by taking only times in [start, start + num_timesteps).
+Within a segment, each agent’s trajectory is represented in a fixed-length array of shape (num_timesteps, 4). The four columns are [x, y, θ, mask]. Valid data points fill the rows corresponding to their relative time, and the mask entry is set to 1 (true). Any timestep with no recorded state is left as (0, 0, 0) with mask = 0. This way, even if an agent does not appear throughout the segment, its array has consistent length, and the boolean mask indicates its true duration.
+The first obs_len steps of each agent are designated as the observed history (condi- tioning input) and the remaining pred_len steps as the ground truth future. In code, after stacking all agents’ (num_timesteps × 4) arrays (ordered ego-first), the tensor is split at the time index obs_len into observed_data and ground_truth_data (with cor- responding masks). For example, if obs_len = 20 and pred_len = 40, each agent yields
+20 observed timesteps and 40 prediction timesteps, regardless of how many were actually present.
+Before returning the segment, the coordinates are normalized by scene. The code col- lects all valid (unmasked) [x, y, θ] entries across agents into a single tensor valid_features. It computes the mean and standard deviation of each dimension. To ensure numerical stability, minimum standard-deviation thresholds are enforced (e.g. at least 1.0 m for x/y and 0.05 rad for θ). A global scale factor is then set to
+0.5
+σ
+in each dimension, so that roughly 2σ covers one unit in the normalized space. All agent coordinates in the segment (both observed and future) are multiplied by this scale. Similarly, the map polylines’ (x, y) coordinates are scaled by the same x–y factors (and headings are effectively scaled with the θ factor as well). This per-scene standardization ensures that variations in scene scale do not destabilize training. The resulting tensors have approximately zero mean and controlled variance, making them suitable for a neural diffusion model.
+
+Normalization and Scaling
+After ego-centric transformation, each scenario is normalized individually to prevent large-scale spatial variation between urban scenes from destabilizing training. We com- pute the standard deviation σtrain of all agent positions (x′, y′) within a scene and nor- malize as:
+ 
+x˜ =
+ 
+x′
+,
+σtrain
+ 
+y˜ =
+ 
+y′
+,
+σtrain
+ 
+θ˜ =
+ 
+θ′
+
+ 
+σtrain
+ 
+,	(3.9)
+ 
+with σtrain = 0.5 as a fixed target scale following the preconditioning scheme in Karras et al. [2022]. This normalization ensures that all inputs lie in a comparable numerical range, improving stability during gradient-based optimization. The same scaling factor is applied to the roadgraph coordinates to maintain geometric consistency between agent motion and map topology.
+
+Stationary Agent Filtering Real-world driving datasets often contain a large num- ber of stationary or near-stationary agents, such as vehicles waiting at traffic lights, stuck in congestion, or parked. While this behavior is realistic, it provides little informative signal for learning motion dynamics. If such trajectories dominate the dataset, genera- tive models—especially diffusion-based approaches—tend to learn trivial solutions that predict minimal or no movement, which reduces trajectory diversity and harms training stability. To mitigate this issue, we filter out stationary agents during data preprocessing and retain only trajectories that exhibit meaningful motion. Scenes that contain too few moving agents after this filtering step are discarded. This ensures that the remain- ing training data primarily consists of dynamic interactions between vehicles, allowing the model to focus on learning realistic motion patterns such as acceleration, turning, lane following, and lane changes. As a result, the dataset becomes more informative for generative trajectory modeling and leads to more stable training and diverse predictions.
+
+3.4.1	Output Representation
+The resulting tensors used as model input are summarized as follows:
+Table 3.3: Summary of preprocessed model inputs. All tensors are stored as PyTorch
+float32 tensors and transferred to the GPU during training.
+
+Tensor	Shape	Description
+x	[A, T, 3]	Agent states (x, y, θ)
+M
+magent	[Npoly, 2Npts + 1]
+[A, T ]	Lanelet polylines and validity flag
+Validity mask for agents
+mmap	[Npoly]	Validity mask for roadgraph
+c	[3]	One-hot condition (left/straight/right)
+ec	[256]	Embedded condition vector
+
+This unified data representation ensures that both the geometric (map-based) and be- havioral (maneuver-based) aspects of the scene are explicitly encoded and aligned in a consistent coordinate system. As a result, the conditional diffusion model can effectively learn motion patterns that generalize across synthetic and real domains while remaining interpretable and controllable during inference. Paste here the image from the original model
+ 
+
+ 
+
+Figure 3.1
+
+3.5	Model Architecture
+3.5.1	Unconditional Model Architecture
+This section presents a mathematical description of the unconditional diffusion-based trajectory prediction model this thesis builds on Weber-Schäfer [2025].
+Tokenization and Input Representation Each scenario is represented as a set of A dynamic agents observed over a temporal horizon of T = Tobs +Tpred timesteps. For agent i ∈ {1, . . . , A} at time t ∈ {1, . . . , T }, the kinematic state is denoted by si,t ∈ RF and consists of features such as two-dimensional position (x, y) and heading angle θ, expressed in an ego-centric coordinate frame. To enable processing by the Transformer architecture, each agent-time pair is embedded into a latent representation. Temporal information is encoded using sinusoidal positional encodings. For a scalar value p, the d-dimensional
+ 
+sinusoidal embedding is defined as
+PE(p)k = 
+cos p/100002(k−1)/d ,	k odd,
+ 
+
+
+
+(3.10)
+ 
+
+for k = 0, . . . , d − 1.
+The agent state features, temporal encodings, and diffusion noise-level embedding (described later) are concatenated and projected into the model dimension D = 256 via a learned linear mapping:
+h(0) = Wemb si,t   PE(t)   PE(σ) ∈ RD.	(3.11)
+
+For timesteps t ≤ Tobs, the noise embedding PE(σ) is set to zero, reflecting the determin- istic role of the observed past. Static map context is represented by a set of M roadgraph
+polylines, each embedded into the same latent space to form map tokens {mj}M	⊂ RD
+with M = 500.
+
+Factorized Transformer Denoiser We set the embedding dimension demb for each of the five individual input features—namely the two-dimensional position (x, y), θ, t, σ—to
+256. The resulting feature embeddings are concatenated to form a joint representation of dimensionality 5 × 256 = 1280. This high-dimensional representation is subsequently processed by a residual multilayer perceptron (MLP) that maps R1280 to R256. The MLP consists of four linear layers with intermediate hidden widths of 1024 and GELU activa- tions. In addition, a learned skip projection maps the 1280-dimensional input directly to
+the 256-dimensional output and is added to the MLP output, which facilitates gradient flow and stabilizes optimization. The resulting 256-dimensional vectors serve as token representations for the Transformer-style denoiser backbone. In our implementation, the backbone comprises 15 attention blocks (temporal self-attention, agent self-attention, and agent-to-roadgraph cross-attention) arranged sequentially, with each attention block followed by a position-wise feedforward network. This yields 30 backbone modules in total.
+
+Temporal Self-Attention. The first operation in each layer is temporal self-attention. For a specific agent i, the model looks across the entire time horizon T (both the fixed past and the noisy future). The primary goal here is to ensure kinematic feasibility. By attending to its own previous and future states, the model learns the "flow" of motion. Mathematically, as shown in Equation 44, the queries Qi,t only interact with keys Ki,s of the same agent. This allows the network to enforce smoothness constraints: if a car is traveling at a speed of x m/s at Tobs, the denoised tokens at Tobs+1 should reflect a physically reachable position. It effectively models the agent’s internal momentum,
+ 
+acceleration patterns, and heading continuity without being distracted by other agents in the scene. For each agent i, temporal self-attention operates on the sequence {h(l−1)}T
+ 
+independently. Queries, keys, and values are computed as
+ 
+i,t
+ 
+t=1
+ 
+
+
+Qi,t = h(l−1)W temp,	Ki,t = h(l−1)W temp,	Vi,t = h(l−1)W temp.	(3.12)
+ 
+i,t	Q
+ 
+i,t	K
+ 
+i,t	V
+ 
+
+The attention output for timestep t is given by
+
+ 
+
+temp
+i,t
+ 
+Σs=1
+ 
+softmaxs
+ 
+⊤
+i,s
+ 
+k
+ 
+Vi,s.	(3.13)
+ 
+A binary temporal validity mask is applied to the attention logits before the softmax operation to prevent padded timesteps from contributing to the attention weights. We use multi-head attention with H = 4 heads and head dimension dk = D/H = 64.
+Agent Self-Attention.	To capture interactions between agents, agent-wise self-attention is applied across all agents at each timestep. For agent i at time t, the output is computed as
+Σ	exp QagentKagent⊤/√dk 
+ 
+agent
+i,t
+ 
+i,t
+ΣA	 
+
+ 
+ 
+j,t
+agent
+ 
+agent⊤  √
+ 
+agent
+j,t
+ 
+(3.14)
+ 
+where queries, keys, and values are obtained from the temporally refined representations.
+
+Map Cross-Attention. In addition to temporal dynamics and agent interactions, fu- ture trajectory prediction is strongly constrained by the static structure of the environ- ment. To incorporate such contextual information, static scene elements extracted from high-definition maps are integrated via a dedicated map cross-attention mechanism.
+Map cross-attention operates by allowing each agent token to selectively attend to a set of embedded roadgraph polylines. Queries are obtained from the current agent representations at timestep t, while keys and values are derived from the map token embeddings. This asymmetric attention design reflects the causal role of the environment: agents adapt their motion in response to the map, while the map itself remains fixed.
+Formally, let {mj}M	denote the set of map tokens. For agent i at time t, queries,
+keys, and values are defined as
+
+Qmap = h(l,b)W map,	Kmap = mj W map,	Vmap = mj W map,	(3.15)
+i,t	i,t	Q	j	K	j	V
+
+where h(l,b) denotes the agent representation after temporal and agent-level attention
+within layer l.
+ 
+The resulting attention weights are computed as
+  QmapKmap⊤ !
+
+and the map-attended representation is obtained via
+zmap = Σ αmapVmap.	(3.17)
+
+This mechanism enables the model to integrate relevant geometric and topological information, such as lane directions, curvature, and intersection layout, directly into the denoising process. In practice, a binary validity mask is applied to the attention logits prior to the softmax operation to ensure that padded or invalid map elements do not influence the resulting attention weights.
+
+Position-wise Feedforward Network and Residual Update.	Following the attention- based aggregation of temporal, social, and spatial context, each agent token is further refined by a position-wise feedforward network (FFN). The FFN is applied independently
+to each agent-time pair and consists of two linear transformations with a non-linear ac- tivation in between.
+Consistent with the Pre-LayerNorm Transformer design, layer normalization is applied before the feedforward transformation. The FFN output is then added to its input via a residual connection, yielding the final representation for layer l:
+
+h(l) = h(l,c) + FFN LN h(l,c)  ,	(3.18)
+
+where h(l,c) denotes the agent representation after the map cross-attention sub-block.
+Together, the map cross-attention and feedforward update complete one Transformer layer. By stacking multiple such layers, the denoiser progressively refines noisy future trajectory estimates while consistently incorporating temporal coherence, inter-agent in- teractions, and static scene constraints.
+
+EDM Preconditioning. To ensure stable training across a wide range of noise levels, the denoiser is parameterized using the Elucidated Diffusion Model (EDM) formulation. Rather than directly predicting the clean trajectory or the added noise, EDM introduces an explicit preconditioning of both the network input and output, allowing the denoising task to be normalized across different corruption strengths.
+Given a clean trajectory x0 and a noise level σ, Gaussian noise ϵ ∼ N (0, I) is added
+ 
+to obtain the noisy input
+xσ = x0 + σϵ.	(3.19)
+The preconditioned denoiser output is then defined as
+
+Dθ(xσ; σ) = cskip(σ)xσ + cout(σ)Fθ(cin(σ)xσ, cnoise(σ)) ,	(3.20)
+
+where Fθ denotes the neural network implemented by the Transformer denoiser, and the coefficients cin(σ), cskip(σ), cout(σ), and cnoise(σ) are deterministic functions of the noise level.
+The input scaling coefficient
+
+ 
+1
+cin(σ) =	2	2
+data
+ 
+(3.21)
+ 
+normalizes the magnitude of the noisy input before it is processed by the network. For large noise levels, this prevents the network from being overwhelmed by high-variance inputs, while for small noise levels the scaling approaches unity, ensuring that nearly clean trajectories are presented to the network at their natural scale.
+The skip connection coefficient
+ 
+
+2
+cskip(σ) =	data	
+data
+ 
+
+(3.22)
+ 
+controls how much of the noisy input is directly propagated to the output.  When σ ≪ σdata, corresponding to late denoising steps, the skip connection dominates and the network only needs to predict a small residual correction. Conversely, when σ ≫ σdata, the skip connection vanishes and the network is responsible for reconstructing the trajectory almost entirely from noise.
+The output scaling coefficient
+
+ 
+	σσdata	
+cout(σ) =	2	2
+data
+ 
+(3.23)
+ 
+determines the contribution of the network prediction to the final output. Together with cskip(σ), this coefficient ensures a smooth interpolation between noise prediction and signal prediction across different noise regimes, allowing the same network to operate effectively over the full diffusion trajectory.
+Finally, the noise conditioning term
+
+cnoise(σ) = 1 log σ	(3.24)
+
+provides the network with explicit information about the current noise level. Using the
+ 
+logarithm of σ compresses the dynamic range of noise magnitudes, enabling the network to generalize across several orders of magnitude. This scalar conditioning signal is embedded and injected into the denoiser, allowing it to adapt its behavior dynamically throughout the diffusion process.
+Overall, EDM preconditioning reformulates the denoising task such that the effec- tive learning problem remains well-conditioned and approximately scale-invariant with respect to σ. This design significantly improves optimization stability and sample qual- ity compared to unconditioned diffusion parameterizations, particularly in settings with long prediction horizons and high-dimensional outputs such as multi-agent trajectory prediction.
+
+Training Objective  The network is trained to predict the clean future trajectory x0
+using a noise-weighted mean squared error:
+
+L = Eσ,ϵ λ(σ)  mfuture ⊙ (Dθ(x0 + σϵ; σ) − x0)   2 ,	(3.25)
+
+where λ(σ) = 1/cout(σ)2 and mfuture masks padded or invalid future states.
+
+Figure 3.2: The loss function of the first 30 epochs
+
+
+3.5.2	Conditional Architecture: High-Level Intent Control
+The unconditional model architecture described in the previous section (3.5.1) successfully learns a realistic motion prior from the nuPlan dataset, but it cannot be controlled to achieve specific tactical goals. When driving a car without a driver, a system must be able to predict what might happen in the future and respond to explicit instructions like "turn left" or "maintain lane". This section is about the conditional extension of the architecture. This is designed to change the generative process into a controllable planning tool through high-level intent signals.
+ 
+The main problem in creating conditional trajectories is making sure that a single command can effectively influence the whole prediction sequence, which is often high- dimensional. Unlike local features, such as speed or nearby obstacles, a maneuver inten- tion is a ’global’ property. This means it defines the meaning of the path from start to finish. To do this, we use a multi-stage system that extracts, projects, and integrates labels into the diffusion denoising process.
+
+Geometric Intent Extraction. To avoid the cost and noise of manual labeling, high- level intent labels are extracted automatically from the ground-truth future trajectories during training. The system relies on a geometric heuristic based on the cumulative change in heading over the prediction horizon.
+Let θt be the agent’s heading at timestep t. As shown in Equation (3.6),the cumulative change ∆θ is computed ain heading is computed over the prediction horizon.
+Based on a threshold of 15◦ which had the best results from 10 − 25◦, each trajectory
+is categorized into a discrete intent class c:
+
+Left	if ∆θ > 15◦,
+ 
+c =	Right	if ∆θ < −15◦,
+Straight	otherwise.
+ 
+(3.26)
+ 
+
+The class is represented as a one-hot vector y ∈ {0, 1}3, which serves as the conditioning signal.
+
+Condition Projection Network The discrete maneuver command must be mapped into the continuous latent space of the model before it can influence trajectory generation. For this purpose, a dedicated projection network CondProj is introduced.
+The projection network consists of a small multilayer perceptron (MLP) with SiLU
+activations that transforms the one-hot command vector into a dense embedding:
+
+econd = CondProj(y) ∈ R256	(3.27)
+The resulting 256-dimensional embedding matches the internal feature dimension used by the Transformer denoiser.
+Two variants of the projection network were implemented:
+
+•	CondProjShort: a two-layer MLP
+
+•	CondProjLong: a deeper four-layer MLP
+
+The deeper variant was found to provide more expressive representations and is used in the final architecture.
+ 
+Temporal Expansion of the Condition Signal Unlike map features or interaction signals, the intention of the manoeuvre is a global property of the future trajectory, rather than a local feature at a single timestep. So, the condition embedding must have an effect on all the future states that are predicted. To achieve this, the predicted state of the system is sent out along the prediction horizon:
+
+Econd = expand(econd) ∈ RA×Tpred×256	(3.28)
+where A denotes the number of agents and Tpred the prediction horizon. The condi- tioning signal is only used for the future part of the sequence, while the past part stays the same. This design keeps the same order of events in the prediction problem. The past is a fixed context, and the future is still controllable.
+
+Feature-Level Conditioning The first integration point of the condition signal occurs at the feature level before the Transformer backbone. After the trajectory features are embedded and compressed through the feature encoder, the expanded condition tensor is added to the latent representation of the future tokens:
+
+xt = xt + Econd,	for t ≥ Tobs	(3.29)
+This additive fusion injects the intention of the manoeuvre direct into the internal representation of the predicted trajectory segment. However, simple additive condition- ing alone can not be enough as we have seen during the testing. This is because the transformer layers may gradually weaken the conditioning signal as deeper layers process the features. To address this limitation, a stronger conditioning mechanism is introduced.
+
+Feature Modulation via FiLM Conditioning To reinforce the influence of the ma- neuver command throughout the network, feature-wise linear modulation (FiLM) is ap- plied before each Transformer block. Given the latent trajectory representation x and the condition embedding Econd, a small linear projection generates scaling and shifting parameters:
+
+(γ, β) = Wfilm(Econd)	(3.30)
+The latent features are then modulated according to
+
+x′ = x ⊙ (1 + γ) + β	(3.31)
+where ⊙ denotes element-wise multiplication.
+This operation allows the maneuver condition to dynamically reshape the internal feature representation by selectively amplifying or suppressing specific feature dimensions.
+ 
+Compared to purely additive conditioning, FiLM modulation provides a significantly stronger mechanism for controlling the generated trajectories.
+Importantly, the modulation is applied before every Transformer block, ensuring that the conditioning signal remains present throughout the entire denoising process.
+
+Attention-Level Conditioning As well as conditioning at the feature level, the Trans- former also has an attention mechanism that includes the maneuver embedding. The condition embedding changes the query representation used to calculate attention in the cross-agent attention layers and the agent cross-roadgraph layers:
+
+Q′ = Q + WcondEcond	(3.32)
+This change makes the attention mechanism focus more on contextual features that match the commanded manoeuvre. For example, when the model is told to turn left, it can focus on map elements related to left-turn lanes or intersection shapes. Also, when an agent wants to turn left, they need to see the other agent in front of them. This strat- egy of combining two different types of conditioning – feature modulation and attention conditioning – allows the maneuver signal to influence both the internal representation and the interaction reasoning performed by the Transformer..
+
+Classifier-Free Guidance (CFG). To ensure the conditioning signal is robust and to allow the strength of the guidance to be tuned during inference, the model is trained using Classifier-Free Guidance (CFG). This technique eliminates the need for a separate classi- fier to guide the generation, instead training a single model to act as both a conditional and an unconditional predictor.
+Training phase (conditioning dropout). During training, the conditioning signal y is randomly dropped with probability puncond (set to 0.1). When dropped, y is replaced by a learned null token (or a zero vector). This forces the model to learn two distributions simultaneously: the conditional distribution pθ(x | c) and the marginal (unconditional)
+distribution pθ(x).
+Inference phase (guidance scaling). During sampling, the model performs two forward passes for each denoising step: one providing the specific command c (e.g., Left) and one providing the null condition ∅. The final noise estimate ˆϵfinal is computed as a linear extrapolation of these two outputs:
+ˆϵfinal = ˆϵ(xt, ∅) + s · (ˆϵ(xt, c) − ˆϵ(xt, ∅)) ,	(3.33)
+
+where s is the guidance scale (typically s > 1). A scale of s = 1 recovers standard conditional sampling. Increasing s (e.g., s = 2.0) amplifies the influence of the condition, pushing the generated trajectory further away from the generic mean and more strongly
+ 
+toward the specified intent. This enables explicit control over the trade-off between mode coverage and adherence to user commands. In our Experiments we got the best results with s between 1.5 and 2.2.
+Loss Design The additional direction loss Ldir is introduced to explicitly enforce cor- rect turning behavior in the predicted trajectories. While the reconstruction loss Lrecon penalizes positional errors, it does not necessarily guarantee that the predicted motion follows the correct maneuver (e.g., left, right, or straight). By minimizing the angular discrepancy between the predicted and ground-truth headings, Ldir(θˆ, θ) provides an ad- ditional supervisory signal that encourages consistency between the predicted trajectory orientation and the conditioned maneuver.
+To prevent this auxiliary constraint from dominating the optimization in early train- ing stages, its contribution is gradually increased using the scaling factor λdir = ΛDIR · min 1,	where ΛDIR = 0.02. The final loss therefore combines positional and direc- tional supervision as
+ 
+(b)
+comb
+ 
+(b)
+recon
+ 
++ λdirL(b),	(3.34)
+ 
+which improves the model’s ability to generate trajectories that both match the ground- truth positions and follow the intended directional behavior.
+ 
+
+Chapter 4
+
+Experiments and Results
+
+This chapter evaluates the proposed diffusion-based trajectory generator under four ex- perimental settings. The goal is to quantify (i) whether the unconditional generative baseline learns a plausible multimodal future distribution, (ii) which architectural and training components contribute most to stability and accuracy (masking, map condition- ing, physics regularization), and (iii) how sampling design choices (noise schedule and number of denoising steps) affect output quality and diversity.
+Across all experiments, the model predicts future trajectories for a horizon of Tpred = 20 steps conditioned on Tobs = 10 observed steps. All agent sequences use padding to a maximum number of agents A, and both agent and roadgraph inputs are controlled by binary masks to prevent the model from attending to invalid tokens. Unless stated otherwise, training uses the same optimizer, learning-rate schedule, and diffusion noise parameterization as in the baseline training script.
+For quantitative evaluation, standard displacement metrics are used. The average displacement error (ADE) measures the mean Euclidean distance between predicted and ground-truth positions over the prediction horizon, while the final displacement error (FDE) measures the Euclidean distance at the final predicted timestep. Because diffusion models are inherently stochastic and are used to draw multiple future samples, best-of- K metrics (minADE and minFDE for K samples) are additionally reported whenever multiple samples are generated per scene. These best-of-K metrics capture whether the model assigns probability mass near the true future mode, which is especially relevant for multimodal situations such as intersections.
+Alongside these numeric results, this chapter reports training curves and qualitative samples from the same fixed scene at three moments during training (early, mid, and final), always overlaid with the same observed past and the same ground truth. This design makes the evolution of the learned conditional distribution visible and comparable across experiments.
+ 
+ 	   
+(a) Linear speed	(b) Linear acceleration	(c) Angular speed
+
+(d) Angular acceleration	(e) Time-to-collision	(f) Distance to road edge
+Figure 4.1: Comparison of kinematic and safety-related distributions between uncon- ditional trajectory predictions and NuPlan ground truth. The close alignment across motion statistics indicates that the model captures realistic vehicle dynamics and inter- action behavior.
+
+4.0.1	Unconditional Trajectory Generation
+We begin by evaluating the unconditional diffusion model trained and evaluated exclu- sively on the NuPlan dataset. The purpose of this experiment is to assess whether the model learns a realistic and multimodal motion prior that reflects real-world driving behavior, without relying on any explicit conditioning signals. In this setting, future trajectories are generated solely based on the observed agent history and scene context.
+
+Kinematic Distribution Alignment. A fundamental requirement for realistic tra- jectory generation is the consistency of basic kinematic properties with the empirical data distribution. We therefore compare the marginal distributions of linear speed, lin- ear acceleration, angular speed, and angular acceleration between predicted trajectories and the NuPlan ground-truth data. All distributions are computed over all prediction timesteps and normalized for direct comparison.
+Across all kinematic quantities, the predicted trajectories closely follow the empirical NuPlan distributions. In particular, the model reproduces the characteristic concentra-
+ 
+ 	 	 
+(a) Collision indication	(b) Off-road indication	(c) Distance to obstacle
+Figure 4.2: Environmental feasibility metrics for unconditional trajectory generation. The majority of predicted trajectories remain collision-free and within drivable regions, with distance-based statistics closely matching the NuPlan reference distribution.
+
+tion around zero acceleration as well as the heavy-tailed behavior observed in both linear and angular motion. This indicates that the diffusion model captures the intrinsic vari- ability of real driving behavior rather than collapsing to overly smooth or deterministic trajectories.
+
+Environmental Feasibility and Safety. Beyond kinematic realism, generated tra- jectories must respect environmental constraints imposed by road geometry and sur- rounding obstacles. To evaluate this aspect, we analyze map-based feasibility metrics including collision indication, off-road indication, distance to the nearest obstacle, and time-to-collision.
+The predicted trajectories exhibit a high degree of environmental feasibility, with collision events occurring rarely and off-road behavior largely attributable to conservative geometric definitions of road boundaries. Distance-based metrics confirm that predicted agents maintain reasonable safety margins with respect to both static obstacles and road edges. The time-to-collision distribution is dominated by large values, indicating that potentially unsafe interactions are uncommon within the prediction horizon.
+
+Qualitative Scene-Level Analysis. To complement the aggregate statistics, we per- form a qualitative analysis by visualizing predicted trajectory samples in representative urban scenes from the NuPlan dataset. These scenes include intersections, curved road segments, and multi-agent traffic scenarios. For each scene, multiple trajectory samples are generated to illustrate the multimodal nature of the diffusion process, alongside the best prediction selected based on average displacement error.
+The visualizations show that the model produces diverse yet plausible future trajec- tories that align well with lane geometry and traffic flow. Importantly, the generated samples reflect multiple feasible futures in ambiguous situations, demonstrating that the
+ 
+ 	 	 
+(a) Boston	(b) Pittsburgh	(c) Singapore
+Figure 4.3: Qualitative examples of unconditional trajectory predictions in NuPlan scenes. Gray lines denote map elements, blue rectangles indicate agent states at the pre- diction start, light-colored curves show sampled trajectories, and the highlighted curve corresponds to the best prediction according to ADE.
+
+model captures multimodality rather than collapsing to a single dominant behavior.
+
+Discussion. Overall, the unconditional diffusion model learns a coherent and realistic motion prior directly from NuPlan data. The strong alignment of kinematic distributions, combined with robust environmental feasibility and multimodal scene-level behavior, es- tablishes a solid baseline for subsequent conditioning experiments. In the following sec- tion, we investigate how explicit conditioning mechanisms can steer trajectory generation toward desired behaviors while preserving realism and safety.
+
+4.1	Conditional model
+In this section, we conduct a series of experiments to analyse various aspects of conditional trajectory prediction. Specifically, we examine the impact of the conditioning scale, the conditional mechanism (i.e. how and where the condition is incorporated into the architecture), the representation of the manoeuvre angle and the selection of the loss function. Additionally, we evaluate several further design choices to better understand
+ 
+their impact on model performance. Figure	4.4 illustrates the final architecture that produced the best results in our experiments. T
+
+Figure 4.4: Architectural Schematic of the Deep-Conditioned Transformer Denoiser.
+
+The model processes agent trajectories and roadgraph features through a multi-branch neural pipeline. Agent features are projected via a FeatureMLP, while map data is en- coded through a RoadGraphMLP to serve as Keys (K) and Values (V) for spatial at- tention. Conditioning on user commands is implemented through a dual-stage fusion strategy: (1) Early Fusion, where the command embedding is added to the agent fea- tures, and (2) Deep Q-Modulation, where the command directly biases the Query (Q) vectors within the Agent Cross-Attention and Agent-RoadGraph Attention layers. The Transformer backbone consists of 30 interleaved blocks of attention and Feed-Forward Networks (FFN), culminating in a 3D trajectory prediction via the OutputMLP. The following sections systematically analyse the different design decisions and compare their impact on the quality and consistency of the generated trajectories. One of our initial successes is shown Figure 4.5, where the right, left and straight conditions were func- tioning as intended. Given the same observed trajectory, the model produces different future trajectories depending on the provided condition. The predicted trajectories follow different plausible paths corresponding to right turn, straight, and left turn maneuvers.
+Here, we were using the condshort representation. The conditioning signal is incorpo- rated directly into the model’s embedding and is not injected into other components of the architecture. It was observed that the condition only worked in places where it was possible, such as at intersections, and not on straight sections.
+ 
+ 
+Figure 4.5: The generation of plots with conditions is in its earliest stage.
+
+4.1.1	Comparison of Conditioning Projection Architectures
+In conditional diffusion models for trajectory prediction, contextual information must be integrated into the denoising network in order to guide the generation process toward plausible future motions. The effectiveness of this conditioning depends not only on the available information but also on how it is projected into the model’s embedding space. In our architecture, directional commands derived from the future orientation of agents are encoded as one-hot vectors representing three possible motion classes: left, straight, and right. These discrete commands are then projected into the trajectory em-
+bedding space and added to the diffusion model during the denoising process.
+To investigate how the complexity of this projection influences the model perfor- mance, we compare two different conditioning projection networks: CondProjShort and CondProjLong. The CondProjShort module is a lightweight projection network consisting of a single hidden layer, while CondProjLong uses a deeper architecture with multiple hidden layers and higher representational capacity.
+The goal of this experiment is to analyze whether a deeper projection network im- proves the integration of directional conditioning signals and consequently leads to better trajectory predictions. Both models are trained under identical settings and evaluated using standard trajectory prediction metrics.
+....
+In order to quantitatively evaluate the effect of the conditioning projection archi- tecture, we measure the average separation between the generated trajectories of the predicted motion classes (left, straight, and right). This metric reflects how clearly the model distinguishes between different directional commands in the generated trajectories.
+ 
+ 	 
+(a) Scene 1 – CondProjLong	(b) Scene 1 – CondProjShort
+
+(c) Scene 2 – CondProjLong	(d) Scene 2 – CondProjShort
+
+(e) Scene 3 – CondProjLong	(f) Scene 3 – CondProjShort
+Figure 4.6: Qualitative comparison between CondProjShort and CondProjLong on three representative scenes. Each pair of images shows the predicted trajectories generated using the short and long conditioning projection networks. The deeper CondProjLong architecture produces trajectories that better align with the directional command when conditioning is applied per agent.
+ 
+Table 4.1: Comparison of trajectory separation metrics for the two conditioning projec- tion architectures. Larger values indicate clearer separation between motion classes.
+
+Metric	CondProjShort (m)	CondProjLong (m)
+Left – Right separation	0.461		0.476
+Left – Straight separation	0.412		0.431
+Straight – Right separation	0.435		0.448
+Mean separation	0.449		0.462
+Number of segments		246	
+
+Table 1 summarises the results for both projection architectures. The deeper condi- tioning network, CondProjLong, consistently achieves larger separation distances across all motion pair comparisons than the lightweight CondProjShort model. This indicates that the deeper projection network embeds the directional command more effectively into the model’s latent representation.
+Nevertheless, the absolute differences between conditions remain relatively small, since we used high guidance scale in the experiments (4.4). In the following experiment, we in- vestigate alternative conditioning strategies and evaluate whether injecting the condition directly into the attention layers using FiLM modulation leads to a stronger influence on the generated trajectories.
+
+4.1.2	Conditioning in Attention Layers
+In trajectory prediction, contextual information plays a crucial role in determining the future motion of agents. Diffusion models are capable of generating multimodal trajectory distributions; however, their performance strongly depends on how contextual signals are integrated into the network. In particular, attention mechanisms provide a natural way to incorporate interactions between agents and the surrounding environment.
+In this experiment, we investigate different strategies for integrating conditional in- formation into the attention layers of the denoising network. The goal is to analyze how the placement of the conditioning signal affects the model’s ability to generate accurate and realistic trajectories.
+Specifically, we evaluate four different conditioning configurations:
+
+•	Agent-to-Agent Attention Conditioning: The conditional signal is injected only into the attention mechanism modeling interactions between agents. This allows the model to adapt agent interactions based on the directional command.
+•	Agent-to-Road Attention Conditioning: The condition is applied exclusively to the attention mechanism between agents and the road graph features. In this configuration, the model uses the conditional information primarily to interpret the road structure and lane geometry.
+ 
+•	Combined Agent-to-Agent and Agent-to-Road Conditioning: The condi- tioning signal is injected into both attention modules. This allows the model to simultaneously influence agent interactions and map-based reasoning.
+•	Combined Attention Conditioning with FiLM Modulation: In addition to conditioning both attention modules, Feature-wise Linear Modulation (FiLM) is applied to modulate intermediate feature representations. This approach enables the condition to dynamically scale and shift feature activations, providing a more expressive conditioning mechanism.
+All models are trained using the same training setup and evaluated using standard trajectory prediction metrics. The purpose of this experiment is to determine which conditioning strategy allows the diffusion model to most effectively incorporate contextual information and improve trajectory prediction performance.
+......
+
+4.1.3	Training with Direction Loss
+In addition to architectural modifications, we investigate the impact of incorporating an auxiliary direction loss during training. The purpose of this loss is to encourage the model to generate trajectories that are consistent with the desired high-level motion command, such as turning left, going straight, or turning right.
+The directional command is derived from the future orientation of the agent and represented as a one-hot encoded vector. During training, the model is encouraged not only to minimize the standard diffusion objective but also to correctly follow the intended directional behavior.
+To study the influence of this additional supervision, we conduct two sets of exper- iments. First, we train the model using only the standard diffusion loss without any directional supervision. This serves as a baseline to evaluate the natural ability of the model to capture directional behavior from the data.
+In the second set of experiments, we include an additional direction loss term in the training objective. The overall training objective is defined as a weighted combination of the diffusion loss and the direction loss:
+
+L = Ldiffusion + λLdirection.
+Here, λ controls the relative importance of the direction loss. To analyze the sensitivity of the model to this parameter, we train multiple models with different values of λ.
+The goal of this experiment is to determine whether explicitly enforcing directional consistency improves trajectory prediction performance and to identify the most suitable balance between the diffusion objective and the directional supervision. .......
+ 
+4.1.4	Effect of Guidance Scale
+During inference, conditional diffusion models can control the influence of the conditioning signal through classifier-free guidance. By adjusting the guidance scale, the model can balance between unconditional generation and condition-driven predictions.
+To analyze the impact of this mechanism, we evaluate the model using different guid- ance scale values during sampling. A low guidance scale results in predictions that are closer to the unconditional diffusion model, potentially producing more diverse trajecto- ries. In contrast, higher guidance scales enforce stronger adherence to the conditioning signal, which may improve directional consistency but reduce diversity.
+In this experiment, we evaluate several guidance scale values while keeping the training configuration fixed. The goal is to analyze how strongly the conditioning signal should influence the denoising process and how this affects trajectory prediction accuracy.
+All models are evaluated using the standard trajectory prediction metrics ADE and FDE.
+........
+
+4.1.5	Direction Threshold Sensitivity
+In our conditional framework, directional commands are derived from the change in agent orientation over the prediction horizon. These commands are classified into three cate- gories: left, straight, and right. The classification is determined by a threshold applied to the accumulated change in orientation.
+The choice of this threshold can influence how trajectories are categorized and there- fore affect the conditioning signal used during training. If the threshold is too small, minor orientation changes may be incorrectly interpreted as turns. Conversely, a large threshold may cause genuine turning motions to be classified as straight trajectories.
+To investigate this effect, we conduct experiments using different threshold values for the direction classification. Specifically, we vary the angular threshold used to determine left and right turning behavior while keeping the rest of the training setup unchanged.
+The goal of this experiment is to evaluate how sensitive the model performance is to the definition of directional commands and whether certain thresholds lead to more consistent trajectory predictions.
+ 
+
+Chapter 5 Experiments
+This chapter presents the systematic evaluation of the conditional diffusion model for tra- jectory prediction. Starting from an unconditional baseline, we incrementally introduce conditioning components and evaluate their impact on trajectory quality and directional controllability. All experiments share the same dataset of 900 traffic scenarios split into 246 validation scenes from Boston, Pittsburgh, and Singapore, and use k=9 sampled trajectories per scene with 50 denoising steps.
+We report the following primary metrics:
+
+•	ADE (Average Displacement Error): Mean ℓ2 distance between predicted and ground-truth positions across all future time steps.
+•	FDE (Final Displacement Error): ℓ2 distance at the last predicted time step.
+•	Direction Accuracy: Fraction of agents whose predicted heading change matches the commanded direction class (rechts, gerade, links) based on a turn-threshold of 15.
+•	Separation (s¯): Mean pairwise Euclidean distance between the final positions of trajectories generated under different direction commands for the same scene. Higher separation indicates the model produces visually distinct trajectories per command.
+
+5.1	Conditional Model
+The unconditional baseline (M0) uses the networks_2 denoiser with 30 transformer blocks that interleave agent self-attention, cross-agent attention, agent–road-graph attention, and feed-forward layers. It is trained for 1700 epochs with the standard EDM denoising objective ?:
+ 
+
+2	2
+data	2
+Ldenoise = Eσ	(σσ	)2    Dθ(x + σϵ; σ) − x  	.	(5.1)
+data
+Here σ is sampled log-uniformly in [σmin, σmax] = [0.002, 80], and σdata denotes the empirical data standard deviation.
+Without any conditioning signal, M0 achieves an ADE of 1.312 m and a direction accuracy of 33.4%, which is effectively random for a balanced three-class problem. This confirms that the unconditional model has no mechanism for distinguishing between left, straight, and right commands.
+To enable controllable generation, we introduce a discrete direction condition
+
+c ∈ {rechts, gerade, links},
+represented as a one-hot vector y ∈ {0, 1}3. The condition is derived from the ground- truth heading change during training via the function dir_onehot_from_theta, which classifies the cumulative heading deviation as left or right when the absolute angle exceeds 15◦, and as straight otherwise.
+During training, classifier-free guidance (CFG) dropout ? replaces y with the zero vector with probability puncond = 0.20, allowing the model to learn both conditional and unconditional generation. At inference, the guided prediction is
+xˆθ = Dθ(x; σ, 0) + s [Dθ(x; σ, y) − Dθ(x; σ, 0)] ,	(5.2) where s = 3.5 denotes the guidance scale unless stated otherwise.
+The one-hot condition must first be projected into the model hidden dimension before it can influence the denoising process. The following subsections therefore examine two design questions: first, how much projection capacity is required, and second, how the projected condition should be injected into the transformer.
+
+5.1.1	Comparison of Conditioning Projection Architectures
+We evaluate two MLP variants that map the 3-dimensional one-hot condition to a 256- dimensional embedding:
+
+ 
+•	CondProjLong (3-layer): R3 −L−in−e→ar
+R256.
+
+•	CondProjShort (2-layer): R3 −L−in−e→ar
+ 
+R256 −S−iL−→U
+
+
+R128 −S−iL−→U
+ 
+R256 −L−in−e→ar
+
+
+R128 −L−in−e→ar
+ 
+R256 −S−iL−→U
+
+
+
+R256.
+ 
+R256 −L−in−e→ar
+ 
+
+The comparison is carried out using additive conditioning so that any observed dif- ferences can be attributed to the projection network alone.
+ 
+Table 5.1: Additive conditioning with different projection networks (λdir = 0.1, 4800 epochs).
+
+ 
+ 
+CondProj	ADE↓	FDE↓	Dir. Acc.↑
+ 
+s¯ (m)
+ 
+
+CondProjLong (M1a)	0.490	1.145	0.358	0.717
+CondProjShort (M1b)	0.495	1.151	0.352	0.718
+
+Table 5.1 shows that the two projection networks perform almost identically. The differences are negligible: ADE differs by only 0.005 m and direction accuracy by only 0.6 percentage points. Both variants reduce the baseline ADE by more than 60%, indicating that the main benefit comes from the presence of a conditioning signal itself rather than from the depth of the projection network.
+This result suggests that projection capacity is not the limiting factor. Since the input consists only of a three-dimensional one-hot vector, even the smaller projection network appears sufficient to encode the condition reliably. Consequently, the main design ques- tion is not how to project the condition, but how to inject it into the denoiser. Because CondProjLong performs marginally better and introduces only a modest parameter in- crease, we use it as the default in the remaining experiments.
+
+5.1.2	Conditioning in Attention Layers
+With the projection network fixed, we next compare four mechanisms for injecting the condition embedding ec ∈ R256 into the transformer denoiser.
+
+Additive (M1a/M1b).	The condition embedding is directly added to the embedded feature vector at each future time step:
+h′ = ht + ec,	∀ t > Tobs.
+
+This is the simplest and cheapest strategy, but it cannot explicitly modulate the attention mechanism.
+
+Query Injection / QInj (M2a–M2c).	In the network_2_ata_atr architecture, the cross-agent attention layer is modified so that the condition influences the query:
+
+Q = Wqh + Wcec.	(5.3)
+
+This allows the commanded direction to affect how each agent attends to neighbouring agents.
+ 
+FiLM (M3a–M3c). Feature-wise Linear Modulation ? conditions the query represen- tation inside the agent–road-graph attention layer. This enables the model to alter how it uses road context depending on the commanded direction.
+
+Token (M4a–M4e).	The networks_2_token architecture introduces a dedicated AgentConditionCr block. Here, the condition embedding is treated as one or more learnable key/value tokens
+attended to by the trajectory tokens:
+
+Attn(Qtraj, Kcond, Vcond).	(5.4)
+
+This is the most expressive mechanism because it provides an explicit pathway through which condition information can influence the denoising process. The token architecture also uses 40 transformer blocks instead of 30, making it the deepest model considered.
+Table 5.2: Comparison of conditioning injection mechanisms (best variant per method).
+
+ID	Injection	λdir	Epochs	ADE↓	FDE↓	Dir. Acc.↑
+M0	None (baseline)	0	1700	1.312	1.889	0.334
+M1a	Additive	0.10	4800	0.490	1.145	0.358
+M2b	QInj	0.02	4800	0.491	1.136	0.345
+M3c	FiLM	0	4800	0.399	0.910	0.348
+M4b	Token	0	4000	0.429	1.015	0.354
+
+All conditioning strategies substantially outperform the unconditional baseline, re- ducing ADE by roughly 60–70%. However, the comparison also reveals an important distinction between raw prediction quality and conditional usefulness.
+In terms of pure trajectory accuracy, FiLM (M3c) is the strongest model. It achieves the lowest ADE (0.399 m) and the lowest FDE (0.910 m), indicating that FiLM provides the most effective inductive bias for matching the ground-truth future trajectory. In contrast, the Token architecture (M4b) is the strongest conditional model overall. Although its ADE of 0.429 m is slightly higher than that of M3c, it remains clearly superior to Additive and QInj while also providing the most principled mechanism for condition integration. Because the condition is handled through a dedicated cross- attention pathway rather than being entangled with the main feature stream, the token
+model is better suited to controlled generation.
+This distinction is central for the remainder of the chapter. If the goal were only best- point prediction accuracy, M3c would be the preferred model. However, the aim of this work is conditional trajectory generation, not only unconditional reconstruction quality. Under that criterion, the token architecture is more convincing because it combines strong ADE/FDE with a more explicit and robust treatment of the direction signal.
+ 
+5.1.3	Training with Direction Loss
+To encourage directional controllability, we augment the denoising loss with an auxiliary direction loss:
+
+ 
+=  1 
+|Ac| a∈Ac
+ 
+  yˆa
+ 
+— ya
+ 
+  2 ,	(5.5)
+ 
+where yˆa is the predicted direction one-hot derived from the reconstructed heading angles and Ac is the set of agents with an active, non-dropped condition. The total objective is then
+
+
+L = Ldenoise + λdir Ldir,	(5.6)
+
+where λdir is linearly warmed up during the first 300 epochs to stabilise training.
+Table 5.3: Effect of direction loss on QInj, FiLM, and Token models.
+
+ID	λdir	Epochs	ADE↓	Dir. Acc.↑	s¯ (m)↑
+ 
+QInj (network_2_ata_atr):
+M2b	0.02	4800	0.491	0.345	0.536
+M2a	0.02	2000	0.522	0.364	0.721
+M2c	0.10	800	1.032	0.570	1.854
+FiLM (network_2_film):
+M3c	0	4800	0.399	0.348	0.765
+M3b	0.02	4800	1.054	0.364	0.850
+M3a	0.02	2000	1.175	0.476	1.452
+Token (networks_2_token), CondProjLong:
+M4b	0	4000	0.429	0.354	0.591
+M4a	0	2000	0.680	0.457	1.096
+Token (networks_2_token), CondProjShort:
+M4e	0	2800	0.513	0.395	0.934
+M4d	0	2000	0.636	0.445	1.145
+M4c	0.04	2000	0.566	0.431	0.990
+Table 5.3 highlights a consistent trade-off between trajectory fidelity and directional controllability. Increasing λdir can improve direction accuracy, but this generally comes at a substantial cost in ADE. The clearest example is M2c, which achieves the highest direction accuracy of 57.0% but degrades to an ADE of 1.032 m, making it unsuitable as a final trajectory predictor.
+The FiLM architecture is particularly sensitive to this auxiliary supervision. Although M3c is the best model in terms of raw ADE, introducing even moderate direction loss leads to a dramatic deterioration in performance. This indicates that FiLM achieves its strong trajectory accuracy at the cost of reduced robustness to explicit control supervision.
+ 
+The token architecture behaves more favourably. Its performance degrades more gracefully, and even when not achieving the absolute best ADE, it remains competitive while preserving clearer conditional behaviour. This makes it the most balanced design among all evaluated architectures.
+A second trend is equally important: longer training improves ADE but tends to reduce separation and direction sensitivity. For example, comparing M4a and M4b shows that as the token model becomes more accurate, its trajectories also collapse more strongly toward the dominant ground-truth mode. This suggests that the denoising ob- jective gradually overrides the conditional signal during prolonged optimisation.
+Overall, these results reinforce the conclusion that M3c is the best model for raw trajectory accuracy, whereas the token models are more suitable for condi- tional generation. Among them, M4b provides the most convincing compromise between accuracy, stability, and architectural suitability for controllable pre- diction.
+
+5.2	Summary
+Table 5.5 summarises the three most promising configurations identified in the ablation study.
+Table 5.4: Top-3 model variants by overall performance.
+
+Rank	Model	ADE↓	FDE↓	Dir. Acc.	s¯
+1	M4b (Token, CondProjLong, λ = 0, 4000 ep.)	0.429	1.015	0.354	0.591
+2	M3c (FiLM, CondProjLong, λ = 0, 4800 ep.)	0.399	0.910	0.348	0.765
+3	M1a (Additive, CondProjLong, λ = 0.1, 4800 ep.)	0.490	1.145	0.358	0.717
+
+The experimental study leads to three main conclusions.
+First, projection depth is not a bottleneck. CondProjLong and CondProjShort per- form nearly identically, indicating that the decisive factor is not how the condition is embedded, but how it is injected into the denoiser.
+Second, FiLM achieves the best raw trajectory accuracy. Model M3c obtains the lowest ADE and FDE of all tested configurations, making it the strongest choice if the objective is purely predictive accuracy.
+Third, and most importantly for this thesis, the Token architecture is the best overall conditional model. While its ADE is only slightly worse than that of M3c, it provides a dedicated cross-attention pathway for condition integration, behaves more robustly under control-related supervision, and offers the clearest conceptual match to the goal of controllable trajectory generation. For this reason, the token model is the most convincing final choice even though it is not the single best model under ADE alone.
+ 
+Based on these findings, we select Model M4b (Token, CondProjLong, λdir = 0, 4000 epochs) as the final model for downstream evaluation. It combines strong trajectory quality with the most principled and robust conditioning mechanism, and therefore best satisfies the objective of this work: generating trajectories that remain accurate while being explicitly conditionable by direction commands.
+
+5.2.1	Effect of Guidance Scale
+At inference time, classifier-free guidance (Equation 3.33) amplifies the model’s response to the condition by a scalar factor s. All experiments reported so far use s=3.5. This subsection examines the sensitivity of trajectory quality and directional controllability to the guidance scale.
+A higher guidance scale s pushes the predicted trajectory further in the direction indicated by y, at the cost of potentially moving the sample off the learned data manifold. Conversely, s=1 recovers the standard conditional model without guidance amplification, while s=0 yields the unconditional prediction.
+Experiment pending: Evaluate Model M4b across guidance scales s ∈ {1.0, 2.0, 3.0, 3.5, 4.0, 5.0, 7
+and report ADE, FDE, direction accuracy, and separation. Once completed, a table and line plot of ADE vs. direction accuracy as a function of s should be added here.
+Based on preliminary observations, we expect a convex ADE curve: low guidance (s < 2) wastes the condition signal, while high guidance (s > 5) amplifies the condition at the expense of physical plausibility. The optimal range is anticipated near s ∈ [3, 4].
+
+5.2.2	Direction Threshold Sensitivity
+The direction label (rechts, gerade, links) is derived from the cumulative heading change
+∆θ of each agent’s future trajectory using a threshold θthresh:
+
+links	if ∆θ > +θthresh,
+ 
+dir(∆θ) =
+ 
+rechts	if ∆θ < −θthresh,
+gerade	otherwise.
+ 
+(5.7)
+ 
+
+All models are trained with θthresh = 15. However, this threshold affects the label distribution in training and, consequently, the model’s ability to learn turning behaviour. A lower threshold enlarges the pool of turning examples but includes mild lane changes, while a higher threshold captures only aggressive turns but reduces the number of training samples per turning class.
+ 
+Experiment pending: Re-evaluate direction accuracy of Model M4b under thresholds θthresh ∈ {5, 10, 15, 20, 25, 30} applied at evaluation time. Since this changes only the label assignment for the accuracy metric, no retraining is needed. A bar chart of direction accuracy per command per threshold should be added here.
+
+We anticipate that lowering the threshold will increase overall accuracy (more trajectories are classified as turns, matching the model’s mild directional bias) but decrease the mean- ingfulness of the direction control, as small heading deviations may be indistinguishable from noise. Raising the threshold above 20 will likely invert this pattern: accuracy drops because fewer test trajectories qualify as turns, but the turns that do match represent genuine directional controllability.
+
+5.3	Safety Metric Evaluation
+Beyond trajectory accuracy, the generated scenes must be physically plausible. We ap- ply the metrics_map evaluation framework to assess collision rates, off-road fractions, time-to-collision (TTC) distributions, and kinematic statistics (linear/angular speed and acceleration, distance to road edges and obstacles). These metrics compare the distribu- tion of generated trajectories against the ground-truth dataset using the Earth Mover’s Distance (Wasserstein-1) across binned histograms, as well as the Permutation Test with N =1000 resampling iterations.
+Experiment pending: Run metrics_map.py on the chosen final model(s) and report collision rate, off-road rate, TTC distribution, kinematic metrics, and distributional distances against ground truth.
+
+5.4	Summary
+Table 5.5 summarises the three most promising model configurations identified through the ablation study.
+Table 5.5: Top-3 model variants by ADE.
+
+Rank	Model	ADE ↓	FDE ↓	Dir. Acc.	s¯
+1	M3c (FiLM, λ=0, 4800 ep.)	0.399	0.910	0.348	0.765
+2	M4b (Token, λ=0, 4000 ep.)	0.429	1.015	0.354	0.591
+3	M1a (Additive, λ=0.1, 4800 ep.)	0.490	1.145	0.358	0.717
+
+Key findings of the experimental campaign:
+ 
+1.	Conditioning projection capacity is not a bottleneck. CondProjLong and CondProjShort yield virtually identical performance; the injection mechanism mat- ters more.
+2.	FiLM achieves the best raw trajectory quality (ADE = 0.399) but is fragile in the presence of direction loss.
+3.	Token-based conditioning offers the best balance between trajectory accu- racy and directional controllability, thanks to the dedicated cross-attention pathway that isolates condition processing from the main denoising stream.
+4.	Direction loss creates a quality–controllability trade-off. Moderate λdir improves direction accuracy at early epochs, but longer training causes the denoising loss to dominate and the directional signal to fade.
+5.	Longer training improves ADE but reduces directional separation, in- dicating that the model collapses the conditional modes toward the ground-truth distribution.
+Based on these findings, we select Model M4b (Token, CondProjLong, λdir=0, 4000 epochs) as the final model for downstream evaluation. It provides the second- lowest ADE (0.429 m), competitive direction accuracy, and—as the token architecture—the most principled mechanism for condition integration via cross-attention. The pending guidance-scale and threshold-sensitivity experiments (Sections 5.2.1–5.2.2) will further refine the inference-time hyperparameters for this model. write it please in latex
+ 
+
+Bibliography
+Nikolaos Adaloglou and Others. Adaptive classifier-free guidance. arXiv preprint, 2024. Hyungjin Chung, Jihwan Kim, and Yang Song. Cfg++: Manifold-constrained classifier-
+free guidance. arXiv preprint, 2024.
+
+George Cybenko. Approximation by superpositions of a sigmoidal function. Mathematics of control, signals and systems, 2(4):303–314, 1989.
+Patrick Dendorfer, Aljosa Osep, Anton Milan, et al. Motion forecasting in autonomous driving: Challenges and opportunities. IEEE Transactions on Pattern Analysis and Machine Intelligence, 2023.
+Ian Goodfellow, Jean Pouget-Abadie, Mehdi Mirza, Bing Xu, David Warde-Farley, Sherjil Ozair, Aaron Courville, and Yoshua Bengio. Generative adversarial nets. In Advances in Neural Information Processing Systems (NeurIPS), 2014.
+Jonathan Ho and Tim Salimans. Classifier-free diffusion guidance. arXiv preprint arXiv:2207.12598, 2022.
+Jonathan Ho, Ajay Jain, and Pieter Abbeel. Denoising diffusion probabilistic models. In
+Advances in Neural Information Processing Systems (NeurIPS), 2020.
+
+Sepp Hochreiter. The vanishing gradient problem during learning recurrent neural net- works and problem solutions. International Journal of Uncertainty, Fuzziness and Knowledge-Based Systems, 6(2):107–116, 1998.
+Sepp Hochreiter and Jürgen Schmidhuber. Long short-term memory. Neural Computa- tion, 9(8):1735–1780, 1997.
+Kurt Hornik, Maxwell Stinchcombe, and Halbert White. Multilayer feedforward networks are universal approximators. Neural networks, 2(5):359–366, 1989.
+Chiyu Jiang et al. Motiondiffuser: Controllable multi-agent motion prediction using dif- fusion. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR), 2023.
+ 
+Tero Karras, Miika Aittala, Timo Aila, and Samuli Laine. Elucidating the design space of diffusion-based generative models. In Advances in Neural Information Processing Systems (NeurIPS), 2022.
+Diederik P Kingma and Jimmy Ba. Adam: A method for stochastic optimization. arXiv preprint arXiv:1412.6980, 2014.
+Diederik P. Kingma and Max Welling. Auto-encoding variational bayes. In International Conference on Learning Representations (ICLR), 2014.
+Warren S McCulloch and Walter Pitts. A logical calculus of the ideas immanent in nervous activity. The bulletin of mathematical biophysics, 5(4):115–133, 1943.
+Patrick Niedoba and Others. Scene-conditioned diffusion for multi-agent trajectory pre- diction. arXiv preprint, 2023.
+Danilo J. Rezende, Shakir Mohamed, and Daan Wierstra. Stochastic backpropagation and approximate inference in deep generative models. In International Conference on Machine Learning (ICML), 2014.
+Frank Rosenblatt. The perceptron: a probabilistic model for information storage and organization in the brain. Psychological review, 65(6):386, 1958.
+David E Rumelhart, Geoffrey E Hinton, and Ronald J Williams. Learning representations by back-propagating errors. nature, 323(6088):533–536, 1986a.
+David E. Rumelhart, Geoffrey E. Hinton, and Ronald J. Williams. Learning representa- tions by back-propagating errors. Nature, 323(6088):533–536, 1986b.
+Amir Sadat and Others. Rethinking guidance in diffusion models. arXiv preprint, 2024.
+Karlygash Smagulova and Alex Pappachen James. A survey on long short-term memory networks for time series prediction. IEEE Access, 7:82443–82453, 2019.
+Yang Song and Stefano Ermon. Generative modeling by estimating gradients of the data distribution. In Advances in Neural Information Processing Systems (NeurIPS), 2020.
+Yang Song, Jascha Sohl-Dickstein, Diederik P. Kingma, Abhishek Kumar, and Stefano Ermon. Score-based generative modeling through stochastic differential equations. In International Conference on Learning Representations (ICLR), 2021.
+Ziyu Wang and Others. Variational autoencoders: A tutorial, 2025. Preprint.
+Luca Weber-Schäfer. Evaluation of domain gaps of diffusion models for the generation of traffic scenarios. Master’s thesis, Humboldt-Universität Berlin, Berlin, Germany, 2025. Unpublished.
+ 
+Ruibin Xiong, Yunchang Yang, Di He, et al. On layer normalization in the transformer architecture. In International Conference on Machine Learning (ICML), 2020.
